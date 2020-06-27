@@ -3071,25 +3071,32 @@ struct AAValueConstantRange
   static const char ID;
 };
 
-static const APInt EmptyKey = APInt::getAllOnesValue(100);
-static const APInt TombstoneKey = APInt::getAllOnesValue(101);
-
-// Provide DenseMapInfo for APInt.
-template <> struct DenseMapInfo<APInt> : DenseMapInfo<void *> {
-  static inline APInt getEmptyKey() { return EmptyKey; }
-  static inline APInt getTombstoneKey() { return TombstoneKey; }
-  static unsigned getHashValue(const APInt &Val) {
-    return (unsigned)Val.getLimitedValue();
+/// Provide DenseMapInfo for APInt
+struct DenseMapAPIntKeyInfo {
+  static inline APInt getEmptyKey() {
+    APInt V(nullptr, 0);
+    V.U.VAL = 0;
+    return V;
   }
+
+  static inline APInt getTombstoneKey() {
+    APInt V(nullptr, 0);
+    V.U.VAL = 1;
+    return V;
+  }
+
+  static unsigned getHashValue(const APInt &Key) {
+    return static_cast<unsigned>(hash_value(Key));
+  }
+
   static bool isEqual(const APInt &LHS, const APInt &RHS) {
-    if (LHS.getBitWidth() != RHS.getBitWidth())
-      return false;
-    return LHS == RHS;
+    return LHS.getBitWidth() == RHS.getBitWidth() && LHS == RHS;
   }
 };
 
+template <typename MemberTy, typename KeyInfo = DenseMapInfo<MemberTy>>
 struct PotentialValueSet {
-  using SetTy = DenseSet<APInt>;
+  using SetTy = DenseSet<MemberTy, KeyInfo>;
 
   PotentialValueSet(bool isFull) : isFull(isFull) {}
 
@@ -3101,7 +3108,7 @@ struct PotentialValueSet {
     return Set == RHS.Set;
   }
 
-  void insert(const APInt &C) {
+  void insert(const MemberTy &C) {
     if (isFull)
       return;
     Set.insert(C);
@@ -3117,9 +3124,8 @@ struct PotentialValueSet {
       isFull = true;
       return;
     }
-    for (auto &e : R.Set) {
-      Set.insert(e);
-    }
+    for (const MemberTy &C : R.Set)
+      Set.insert(C);
   }
 
   /// take intersection with R
@@ -3132,26 +3138,27 @@ struct PotentialValueSet {
       *this = R;
       return;
     }
-    SmallVector<APInt, 8> eraseList;
-    for (auto &e : Set) {
-      if (!R.Set.count(e))
-        eraseList.push_back(e);
+    SetTy intersectSet;
+    for (const MemberTy &C : Set) {
+      if (R.Set.count(C))
+        intersectSet.insert(C);
     }
-    for (auto &e : eraseList) {
-      Set.erase(e);
-    }
+    Set = intersectSet;
   }
 
   bool isFull;
   SetTy Set;
 };
 
+using PotentialConstantIntValueSet =
+    PotentialValueSet<APInt, DenseMapAPIntKeyInfo>;
+
 struct PotentialValuesState : AbstractState {
 
-  using SetTy = DenseSet<APInt>;
+  using SetTy = PotentialConstantIntValueSet::SetTy;
 
   // first boolean value indicates wheather the set is a full set or not
-  using StateTy = PotentialValueSet;
+  using StateTy = PotentialConstantIntValueSet;
 
   PotentialValuesState() : Known(true), Assumed(false) {}
 
@@ -3249,19 +3256,11 @@ struct AAPotentialValues
 
   /// See AbstractAttribute::getState(...).
   PotentialValuesState &getState() override { return *this; }
-  const AbstractState &getState() const override { return *this; }
+  const PotentialValuesState &getState() const override { return *this; }
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAPotentialValues &createForPosition(const IRPosition &IRP,
                                               Attributor &A);
-
-  /// virtual PotentialValuesState::SetTy &
-  /// getAssumedPotentialValues(Attributor &A,
-  ///                           const Instruction *CtxI = nullptr) const = 0;
-
-  /// virtual PotentialValuesState::SetTy &
-  /// getKnownPotentialValues(Attributor &A,
-  ///                         const Instruction *CtxI = nullptr) const = 0;
 
   Optional<ConstantInt *>
   getAssumedConstantInt(Attributor &A,
