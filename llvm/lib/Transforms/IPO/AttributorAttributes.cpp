@@ -4367,58 +4367,40 @@ struct AAValueSimplifyImpl : AAValueSimplify {
     return true;
   }
 
-  bool askSimplifiedValueForAAValueConstantRange(Attributor &A) {
-    if (!getAssociatedValue().getType()->isIntegerTy())
-      return false;
+  template <typename AAType>
+  void askSimplifiedValueFor(Attributor &A, bool &failAll,
+                             bool &conflictAssumedConstantInt) {
+    if (!getAssociatedType()->isIntegerTy())
+      return;
 
-    const auto &ValueConstantRangeAA =
-        A.getAAFor<AAValueConstantRange>(*this, getIRPosition());
+    const auto &AA =
+        A.getAAFor<AAType>(*this, getIRPosition(), /* TrackDependence */ true,
+                           DepClassTy::OPTIONAL);
 
-    Optional<ConstantInt *> COpt =
-        ValueConstantRangeAA.getAssumedConstantInt(A);
-    if (COpt.hasValue()) {
-      if (auto *C = COpt.getValue())
-        SimplifiedAssociatedValue = C;
-      else
-        return false;
-    } else {
-      SimplifiedAssociatedValue = llvm::None;
+    Optional<ConstantInt *> COpt = AA.getAssumedConstantInt(A);
+
+    if (!COpt.hasValue())
+      failAll = false;
+    else if (auto *C = COpt.getValue()) {
+      LLVM_DEBUG(dbgs() << "[askOtherAA]" << C->getValue() << "\n");
+      if (SimplifiedAssociatedValue.hasValue())
+        conflictAssumedConstantInt |=
+            (C != SimplifiedAssociatedValue.getValue());
+      SimplifiedAssociatedValue = C;
+      failAll = false;
     }
-    return true;
   }
 
-  bool askSimplifiedValueForAAPotentialValues(Attributor &A) {
-    if (!getAssociatedType()->isIntegerTy())
-      return false;
-
-    const auto &PotentialValuesAA =
-        A.getAAFor<AAPotentialValues>(*this, getIRPosition());
-
-    LLVM_DEBUG(dbgs() << "[askAAPotentialValues] "
-                      << PotentialValuesAA.getAsStr() << "\n"
-                      << getAssociatedValue() << "\n");
-
-    Optional<ConstantInt *> COpt = PotentialValuesAA.getAssumedConstantInt(A);
-
-    if (COpt.hasValue()) {
-      if (COpt.getValue())
-        LLVM_DEBUG(dbgs() << "simplified value : "
-                          << COpt.getValue()->getValue() << "\n");
-      else
-        LLVM_DEBUG(dbgs() << "nullptr\n");
-    } else {
-      LLVM_DEBUG(dbgs() << "None\n");
-    }
-
-    if (COpt.hasValue()) {
-      if (auto *C = COpt.getValue())
-        SimplifiedAssociatedValue = C;
-      else
-        return false;
-    } else {
-      SimplifiedAssociatedValue = llvm::None;
-    }
-    return true;
+  bool askSimplifiedValueForOtherAAs(Attributor &A) {
+    bool failAll = true;
+    bool conflictAssumedConstantInt = false;
+    askSimplifiedValueFor<AAValueConstantRange>(A, failAll,
+                                                conflictAssumedConstantInt);
+    askSimplifiedValueFor<AAPotentialValues>(A, failAll,
+                                             conflictAssumedConstantInt);
+    LLVM_DEBUG(dbgs() << "conflict : " << conflictAssumedConstantInt << "\n");
+    LLVM_DEBUG(dbgs() << "failAll : " << failAll << "\n");
+    return !conflictAssumedConstantInt && !failAll;
   }
 
   /// See AbstractAttribute::manifest(...).
@@ -4450,6 +4432,7 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   ChangeStatus indicatePessimisticFixpoint() override {
     // NOTE: Associated value will be returned in a pessimistic fixpoint and is
     // regarded as known. That's why`indicateOptimisticFixpoint` is called.
+    LLVM_DEBUG(dbgs() << "!!pessimistic simplified!!\n");
     SimplifiedAssociatedValue = &getAssociatedValue();
     indicateOptimisticFixpoint();
     return ChangeStatus::CHANGED;
@@ -4501,17 +4484,17 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
 
     bool HasValueBefore = SimplifiedAssociatedValue.hasValue();
 
-    if (askSimplifiedValueForAAPotentialValues(A)) {
-      return HasValueBefore == SimplifiedAssociatedValue.hasValue()
-                 ? ChangeStatus::UNCHANGED
-                 : ChangeStatus ::CHANGED;
-    }
+    // if (askSimplifiedValueForAAPotentialValues(A)) {
+    //   return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+    //              ? ChangeStatus::UNCHANGED
+    //              : ChangeStatus ::CHANGED;
+    // }
 
-    if (askSimplifiedValueForAAValueConstantRange(A)) {
-      return HasValueBefore == SimplifiedAssociatedValue.hasValue()
-                 ? ChangeStatus::UNCHANGED
-                 : ChangeStatus ::CHANGED;
-    }
+    // if (askSimplifiedValueForAAValueConstantRange(A)) {
+    //   return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+    //              ? ChangeStatus::UNCHANGED
+    //              : ChangeStatus ::CHANGED;
+    // }
 
     auto PredForCallSite = [&](AbstractCallSite ACS) {
       const IRPosition &ACSArgPos =
@@ -4537,7 +4520,13 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
     bool AllCallSitesKnown;
     if (!A.checkForAllCallSites(PredForCallSite, *this, true,
                                 AllCallSitesKnown))
-      return indicatePessimisticFixpoint();
+      if (!askSimplifiedValueForOtherAAs(A))
+        return indicatePessimisticFixpoint();
+    if (SimplifiedAssociatedValue.hasValue())
+      LLVM_DEBUG(dbgs() << "Simplified "
+                        << *SimplifiedAssociatedValue.getValue() << "\n");
+    else
+      LLVM_DEBUG(dbgs() << "Not Simplified yet\n");
 
     // If a candicate was found in this update, return CHANGED.
     return HasValueBefore == SimplifiedAssociatedValue.hasValue()
@@ -4561,24 +4550,25 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
                       << getAssociatedValue() << "\n");
     bool HasValueBefore = SimplifiedAssociatedValue.hasValue();
 
-    if (askSimplifiedValueForAAPotentialValues(A)) {
-      return HasValueBefore == SimplifiedAssociatedValue.hasValue()
-                 ? ChangeStatus::UNCHANGED
-                 : ChangeStatus ::CHANGED;
-    }
+    // if (askSimplifiedValueForAAPotentialValues(A)) {
+    //   return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+    //              ? ChangeStatus::UNCHANGED
+    //              : ChangeStatus ::CHANGED;
+    // }
 
-    if (askSimplifiedValueForAAValueConstantRange(A)) {
-      return HasValueBefore == SimplifiedAssociatedValue.hasValue()
-                 ? ChangeStatus::UNCHANGED
-                 : ChangeStatus ::CHANGED;
-    }
+    // if (askSimplifiedValueForAAValueConstantRange(A)) {
+    //   return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+    //              ? ChangeStatus::UNCHANGED
+    //              : ChangeStatus ::CHANGED;
+    // }
 
     auto PredForReturned = [&](Value &V) {
       return checkAndUpdate(A, *this, V, SimplifiedAssociatedValue);
     };
 
     if (!A.checkForAllReturnedValues(PredForReturned, *this))
-      return indicatePessimisticFixpoint();
+      if (!askSimplifiedValueForOtherAAs(A))
+        return indicatePessimisticFixpoint();
 
     LLVM_DEBUG(dbgs() << "HasVsalueBefore : " << HasValueBefore << "\n");
     LLVM_DEBUG(dbgs() << "new : " << SimplifiedAssociatedValue.hasValue()
@@ -4586,6 +4576,11 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
     if (SimplifiedAssociatedValue.hasValue()) {
       LLVM_DEBUG(dbgs() << *(SimplifiedAssociatedValue.getValue()) << "\n");
     }
+    if (SimplifiedAssociatedValue.hasValue())
+      LLVM_DEBUG(dbgs() << "[currently Simplified] : "
+                        << *SimplifiedAssociatedValue.getValue() << "\n");
+    else
+      LLVM_DEBUG(dbgs() << "[currently Simplified] : None\n");
 
     // If a candicate was found in this update, return CHANGED.
     return HasValueBefore == SimplifiedAssociatedValue.hasValue()
@@ -4645,7 +4640,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
   void initialize(Attributor &A) override {
     // FIXME: This might have exposed a SCC iterator update bug in the old PM.
     //        Needs investigation.
-    // AAValueSimplifyImpl::initialize(A);
+    AAValueSimplifyImpl::initialize(A);
     Value &V = getAnchorValue();
 
     // TODO: add other stuffs
@@ -4659,17 +4654,17 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
                       << " \n");
     bool HasValueBefore = SimplifiedAssociatedValue.hasValue();
 
-    if (askSimplifiedValueForAAPotentialValues(A)) {
-      return HasValueBefore == SimplifiedAssociatedValue.hasValue()
-                 ? ChangeStatus::UNCHANGED
-                 : ChangeStatus ::CHANGED;
-    }
+    // if (askSimplifiedValueForAAPotentialValues(A)) {
+    //   return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+    //              ? ChangeStatus::UNCHANGED
+    //              : ChangeStatus ::CHANGED;
+    // }
 
-    if (askSimplifiedValueForAAValueConstantRange(A)) {
-      return HasValueBefore == SimplifiedAssociatedValue.hasValue()
-                 ? ChangeStatus::UNCHANGED
-                 : ChangeStatus ::CHANGED;
-    }
+    // if (askSimplifiedValueForAAValueConstantRange(A)) {
+    //   return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+    //              ? ChangeStatus::UNCHANGED
+    //              : ChangeStatus ::CHANGED;
+    // }
 
     auto VisitValueCB = [&](Value &V, const Instruction *CtxI, bool &,
                             bool Stripped) -> bool {
@@ -4688,11 +4683,16 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     if (!genericValueTraversal<AAValueSimplify, bool>(
             A, getIRPosition(), *this, Dummy, VisitValueCB, getCtxI(),
             /* UseValueSimplify */ false))
-      return indicatePessimisticFixpoint();
+      if (!askSimplifiedValueForOtherAAs(A)) {
+        LLVM_DEBUG(dbgs() << "pessimistic!\n");
+        return indicatePessimisticFixpoint();
+      }
 
     if (SimplifiedAssociatedValue.hasValue())
-      LLVM_DEBUG(dbgs() << "candidate : "
-                        << *(SimplifiedAssociatedValue.getValue()) << "\n");
+      LLVM_DEBUG(dbgs() << "[currently Simplified] : "
+                        << *SimplifiedAssociatedValue.getValue() << "\n");
+    else
+      LLVM_DEBUG(dbgs() << "[currently Simplified] : None\n");
 
     // If a candicate was found in this update, return CHANGED.
 
@@ -4780,7 +4780,7 @@ struct AAValueSimplifyCallSiteArgument : AAValueSimplifyFloating {
   void trackStatistics() const override {
     STATS_DECLTRACK_CSARG_ATTR(value_simplify)
   }
-};
+}; // namespace
 
 /// ----------------------- Heap-To-Stack Conversion ---------------------------
 struct AAHeapToStackImpl : public AAHeapToStack {
@@ -7174,7 +7174,10 @@ struct AAPotentialValuesImpl : AAPotentialValues {
       OS << "full-set";
     } else {
       for (auto &it : getKnown().Set) {
-        OS << it << " , ";
+        if (it.getBitWidth() == 0)
+          OS << "yabai";
+        else
+          OS << it << " , ";
       }
     }
     OS << "} / {";
@@ -7182,7 +7185,10 @@ struct AAPotentialValuesImpl : AAPotentialValues {
       OS << "full-set";
     } else {
       for (auto &it : getAssumed().Set) {
-        OS << it << " , ";
+        if (it.getBitWidth() == 0)
+          OS << "yabai";
+        else
+          OS << it << " , ";
       }
     }
     OS << "} >";
@@ -7257,12 +7263,28 @@ struct AAPotentialValuesImpl : AAPotentialValues {
     case Instruction::Mul:
       return LHS * RHS;
     case Instruction::UDiv:
+      if (RHS.isNullValue()) {
+        ValidOperator = false;
+        return LHS;
+      }
       return LHS.udiv(RHS);
     case Instruction::SDiv:
+      if (RHS.isNullValue()) {
+        ValidOperator = false;
+        return LHS;
+      }
       return LHS.sdiv(RHS);
     case Instruction::URem:
+      if (RHS.isNullValue()) {
+        ValidOperator = false;
+        return LHS;
+      }
       return LHS.urem(RHS);
     case Instruction::SRem:
+      if (RHS.isNullValue()) {
+        ValidOperator = false;
+        return LHS;
+      }
       return LHS.srem(RHS);
     case Instruction::Shl:
       return LHS.shl(RHS);
@@ -7277,6 +7299,24 @@ struct AAPotentialValuesImpl : AAPotentialValues {
     case Instruction::Xor:
       return (LHSCopy ^= RHS);
     }
+  }
+  ChangeStatus updateImpl(Attributor &A) override {
+    Value &V = getAssociatedValue();
+    auto AssumedBefore = getAssumed();
+
+    auto &ValueSimplifyAA = A.getAAFor<AAValueSimplify>(*this, getIRPosition());
+    Optional<Value *> OptSimplifiedValue =
+        ValueSimplifyAA.getAssumedSimplifiedValue(A);
+    if (OptSimplifiedValue.hasValue() && &V != OptSimplifiedValue.getValue()) {
+      Value *SimplifiedValue = OptSimplifiedValue.getValue();
+      LLVM_DEBUG(dbgs() << "[Simplified]! : " << *SimplifiedValue << "\n");
+      auto &PotentialValuesAA = A.getAAFor<AAPotentialValues>(
+          *this, IRPosition::value(*SimplifiedValue));
+      unionAssumed(PotentialValuesAA.getState());
+      return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
+                                           : ChangeStatus::CHANGED;
+    }
+    return indicatePessimisticFixpoint();
   }
 };
 
@@ -7344,6 +7384,9 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
 
     if (isa<UndefValue>(&V)) {
       LLVM_DEBUG(dbgs() << "UndefValue, optimistic\n");
+      unionAssumed(
+          APInt(/* numBits */ getAssociatedType()->getIntegerBitWidth(),
+                /* val */ 0));
       indicateOptimisticFixpoint();
       return;
     }
@@ -7491,9 +7534,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
                                            : ChangeStatus::CHANGED;
     }
 
-    LLVM_DEBUG(
-        dbgs() << "[AAPotentialValuesFloating::updateImpl] We give up\n");
-    return indicatePessimisticFixpoint();
+    return AAPotentialValuesImpl::updateImpl(A);
   }
 
   /// See AbstractAttribute::trackStatistics()
@@ -7567,6 +7608,9 @@ struct AAPotentialValuesCallSiteArgument : AAPotentialValuesImpl {
 
     if (isa<UndefValue>(&V)) {
       LLVM_DEBUG(dbgs() << "UndefValue, optimistic\n");
+      unionAssumed(
+          APInt(/* numBits */ getAssociatedType()->getIntegerBitWidth(),
+                /* val */ 0));
       indicateOptimisticFixpoint();
       return;
     }
