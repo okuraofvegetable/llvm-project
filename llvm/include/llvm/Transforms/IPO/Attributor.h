@@ -3154,11 +3154,12 @@ struct PotentialValueSet {
 using PotentialConstantIntValueSet =
     PotentialValueSet<APInt, DenseMapAPIntKeyInfo>;
 
-static cl::opt<unsigned>
-    MaxPotentialValues("attributor-max-potential-values", cl::Hidden,
-                       cl::desc("Maximal number of potential values to be "
-                                "tracked for each position."),
-                       cl::init(7));
+// static cl::opt<unsigned>
+//     MaxPotentialValues("attributor-max-potential-values", cl::Hidden,
+//                        cl::desc("Maximal number of potential values to be "
+//                                 "tracked for each position."),
+//                        cl::init(7));
+static const unsigned MaxPotentialValues = 7;
 
 struct PotentialValuesState : AbstractState {
 
