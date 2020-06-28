@@ -4593,7 +4593,7 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
   void initialize(Attributor &A) override {
     // FIXME: This might have exposed a SCC iterator update bug in the old PM.
     //        Needs investigation.
-    AAValueSimplifyImpl::initialize(A);
+    // AAValueSimplifyImpl::initialize(A);
     Value &V = getAnchorValue();
 
     // TODO: add other stuffs
@@ -4709,7 +4709,7 @@ struct AAValueSimplifyCallSiteArgument : AAValueSimplifyFloating {
   void trackStatistics() const override {
     STATS_DECLTRACK_CSARG_ATTR(value_simplify)
   }
-}; // namespace
+};
 
 /// ----------------------- Heap-To-Stack Conversion ---------------------------
 struct AAHeapToStackImpl : public AAHeapToStack {
