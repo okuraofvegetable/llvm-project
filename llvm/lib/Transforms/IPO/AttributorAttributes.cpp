@@ -117,6 +117,7 @@ PIPE_OPERATOR(AAMemoryLocation)
 PIPE_OPERATOR(AAValueConstantRange)
 PIPE_OPERATOR(AAPrivatizablePtr)
 PIPE_OPERATOR(AAUndefinedBehavior)
+PIPE_OPERATOR(AAPotentialValues)
 
 #undef PIPE_OPERATOR
 } // namespace llvm
@@ -4386,6 +4387,40 @@ struct AAValueSimplifyImpl : AAValueSimplify {
     return true;
   }
 
+  bool askSimplifiedValueForAAPotentialValues(Attributor &A) {
+    if (!getAssociatedType()->isIntegerTy())
+      return false;
+
+    const auto &PotentialValuesAA =
+        A.getAAFor<AAPotentialValues>(*this, getIRPosition());
+
+    LLVM_DEBUG(dbgs() << "[askAAPotentialValues] "
+                      << PotentialValuesAA.getAsStr() << "\n"
+                      << getAssociatedValue() << "\n");
+
+    Optional<ConstantInt *> COpt = PotentialValuesAA.getAssumedConstantInt(A);
+
+    if (COpt.hasValue()) {
+      if (COpt.getValue())
+        LLVM_DEBUG(dbgs() << "simplified value : "
+                          << COpt.getValue()->getValue() << "\n");
+      else
+        LLVM_DEBUG(dbgs() << "nullptr\n");
+    } else {
+      LLVM_DEBUG(dbgs() << "None\n");
+    }
+
+    if (COpt.hasValue()) {
+      if (auto *C = COpt.getValue())
+        SimplifiedAssociatedValue = C;
+      else
+        return false;
+    } else {
+      SimplifiedAssociatedValue = llvm::None;
+    }
+    return true;
+  }
+
   /// See AbstractAttribute::manifest(...).
   ChangeStatus manifest(Attributor &A) override {
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
@@ -4466,6 +4501,18 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
 
     bool HasValueBefore = SimplifiedAssociatedValue.hasValue();
 
+    if (askSimplifiedValueForAAPotentialValues(A)) {
+      return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+                 ? ChangeStatus::UNCHANGED
+                 : ChangeStatus ::CHANGED;
+    }
+
+    if (askSimplifiedValueForAAValueConstantRange(A)) {
+      return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+                 ? ChangeStatus::UNCHANGED
+                 : ChangeStatus ::CHANGED;
+    }
+
     auto PredForCallSite = [&](AbstractCallSite ACS) {
       const IRPosition &ACSArgPos =
           IRPosition::callsite_argument(ACS, getArgNo());
@@ -4490,8 +4537,7 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
     bool AllCallSitesKnown;
     if (!A.checkForAllCallSites(PredForCallSite, *this, true,
                                 AllCallSitesKnown))
-      if (!askSimplifiedValueForAAValueConstantRange(A))
-        return indicatePessimisticFixpoint();
+      return indicatePessimisticFixpoint();
 
     // If a candicate was found in this update, return CHANGED.
     return HasValueBefore == SimplifiedAssociatedValue.hasValue()
@@ -4511,15 +4557,35 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
+    LLVM_DEBUG(dbgs() << "[ValueSimplifyReturned][updateImpl] "
+                      << getAssociatedValue() << "\n");
     bool HasValueBefore = SimplifiedAssociatedValue.hasValue();
+
+    if (askSimplifiedValueForAAPotentialValues(A)) {
+      return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+                 ? ChangeStatus::UNCHANGED
+                 : ChangeStatus ::CHANGED;
+    }
+
+    if (askSimplifiedValueForAAValueConstantRange(A)) {
+      return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+                 ? ChangeStatus::UNCHANGED
+                 : ChangeStatus ::CHANGED;
+    }
 
     auto PredForReturned = [&](Value &V) {
       return checkAndUpdate(A, *this, V, SimplifiedAssociatedValue);
     };
 
     if (!A.checkForAllReturnedValues(PredForReturned, *this))
-      if (!askSimplifiedValueForAAValueConstantRange(A))
-        return indicatePessimisticFixpoint();
+      return indicatePessimisticFixpoint();
+
+    LLVM_DEBUG(dbgs() << "HasVsalueBefore : " << HasValueBefore << "\n");
+    LLVM_DEBUG(dbgs() << "new : " << SimplifiedAssociatedValue.hasValue()
+                      << "\n");
+    if (SimplifiedAssociatedValue.hasValue()) {
+      LLVM_DEBUG(dbgs() << *(SimplifiedAssociatedValue.getValue()) << "\n");
+    }
 
     // If a candicate was found in this update, return CHANGED.
     return HasValueBefore == SimplifiedAssociatedValue.hasValue()
@@ -4589,7 +4655,21 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
+    LLVM_DEBUG(dbgs() << "[ValueSimplifyFloating] " << getAssociatedValue()
+                      << " \n");
     bool HasValueBefore = SimplifiedAssociatedValue.hasValue();
+
+    if (askSimplifiedValueForAAPotentialValues(A)) {
+      return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+                 ? ChangeStatus::UNCHANGED
+                 : ChangeStatus ::CHANGED;
+    }
+
+    if (askSimplifiedValueForAAValueConstantRange(A)) {
+      return HasValueBefore == SimplifiedAssociatedValue.hasValue()
+                 ? ChangeStatus::UNCHANGED
+                 : ChangeStatus ::CHANGED;
+    }
 
     auto VisitValueCB = [&](Value &V, const Instruction *CtxI, bool &,
                             bool Stripped) -> bool {
@@ -4608,8 +4688,11 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     if (!genericValueTraversal<AAValueSimplify, bool>(
             A, getIRPosition(), *this, Dummy, VisitValueCB, getCtxI(),
             /* UseValueSimplify */ false))
-      if (!askSimplifiedValueForAAValueConstantRange(A))
-        return indicatePessimisticFixpoint();
+      return indicatePessimisticFixpoint();
+
+    if (SimplifiedAssociatedValue.hasValue())
+      LLVM_DEBUG(dbgs() << "candidate : "
+                        << *(SimplifiedAssociatedValue.getValue()) << "\n");
 
     // If a candicate was found in this update, return CHANGED.
 
@@ -7073,6 +7156,438 @@ struct AAValueConstantRangeCallSiteArgument : AAValueConstantRangeFloating {
     STATS_DECLTRACK_CSARG_ATTR(value_range)
   }
 };
+
+/// ------------------ Potential Values Attribute -------------------------
+
+struct AAPotentialValuesImpl : AAPotentialValues {
+  using StateType = PotentialValuesState;
+
+  AAPotentialValuesImpl(const IRPosition &IRP, Attributor &A)
+      : AAPotentialValues(IRP, A) {}
+
+  /// See AbstractAttribute::getAsStr().
+  const std::string getAsStr() const override {
+    std::string Str;
+    llvm::raw_string_ostream OS(Str);
+    OS << "set-state < {";
+    if (getKnown().isFull) {
+      OS << "full-set";
+    } else {
+      for (auto &it : getKnown().Set) {
+        OS << it << " , ";
+      }
+    }
+    OS << "} / {";
+    if (getAssumed().isFull) {
+      OS << "full-set";
+    } else {
+      for (auto &it : getAssumed().Set) {
+        OS << it << " , ";
+      }
+    }
+    OS << "} >";
+    return OS.str();
+  }
+
+  /// See AbstractAttribute::initialize(..).
+  void initialize(Attributor &A) override {
+    LLVM_DEBUG(dbgs() << "[AAPotentialValues] initialize "
+                      << getAssociatedValue() << "\n");
+  }
+
+  static bool calcICmpInst(const ICmpInst *ICI, APInt &LHS, APInt &RHS) {
+    ICmpInst::Predicate Pred = ICI->getPredicate();
+    switch (Pred) {
+    case ICmpInst::ICMP_UGT:
+      return LHS.ugt(RHS);
+    case ICmpInst::ICMP_SGT:
+      return LHS.sgt(RHS);
+    case ICmpInst::ICMP_EQ:
+      return LHS.eq(RHS);
+    case ICmpInst::ICMP_UGE:
+      return LHS.uge(RHS);
+    case ICmpInst::ICMP_SGE:
+      return LHS.sge(RHS);
+    case ICmpInst::ICMP_ULT:
+      return LHS.ult(RHS);
+    case ICmpInst::ICMP_SLT:
+      return LHS.slt(RHS);
+    case ICmpInst::ICMP_NE:
+      return LHS.ne(RHS);
+    case ICmpInst::ICMP_ULE:
+      return LHS.ule(RHS);
+    case ICmpInst::ICMP_SLE:
+      return LHS.sle(RHS);
+    default:
+      llvm_unreachable("Invalid ICmp predicate!");
+    }
+  }
+
+  static APInt calcCastInst(const CastInst *CI, APInt &Src,
+                            uint32_t ResultBitWidth) {
+    Instruction::CastOps CastOp = CI->getOpcode();
+    switch (CastOp) {
+    default:
+      llvm_unreachable("unsupported or not integer cast");
+    case Instruction::Trunc:
+      return Src.trunc(ResultBitWidth);
+    case Instruction::SExt:
+      return Src.sext(ResultBitWidth);
+    case Instruction::ZExt:
+      return Src.zext(ResultBitWidth);
+    case Instruction::BitCast:
+      return Src;
+    }
+  }
+
+  static APInt calculateBinaryOperator(const BinaryOperator *BinOp,
+                                       const APInt &LHS, const APInt &RHS,
+                                       bool &ValidOperator) {
+    Instruction::BinaryOps BinOpcode = BinOp->getOpcode();
+    ValidOperator = true;
+    APInt LHSCopy = LHS;
+    switch (BinOpcode) {
+    default:
+      ValidOperator = false;
+      return LHS;
+    case Instruction::Add:
+      return (LHSCopy += RHS);
+    case Instruction::Sub:
+      return (LHSCopy -= RHS);
+    case Instruction::Mul:
+      return LHS * RHS;
+    case Instruction::UDiv:
+      return LHS.udiv(RHS);
+    case Instruction::SDiv:
+      return LHS.sdiv(RHS);
+    case Instruction::URem:
+      return LHS.urem(RHS);
+    case Instruction::SRem:
+      return LHS.srem(RHS);
+    case Instruction::Shl:
+      return LHS.shl(RHS);
+    case Instruction::LShr:
+      return LHS.lshr(RHS);
+    case Instruction::AShr:
+      return LHS.ashr(RHS);
+    case Instruction::And:
+      return (LHSCopy &= RHS);
+    case Instruction::Or:
+      return (LHSCopy |= RHS);
+    case Instruction::Xor:
+      return (LHSCopy ^= RHS);
+    }
+  }
+};
+
+struct AAPotentialValuesArgument final
+    : AAArgumentFromCallSiteArguments<AAPotentialValues, AAPotentialValuesImpl,
+                                      PotentialValuesState> {
+  using Base =
+      AAArgumentFromCallSiteArguments<AAPotentialValues, AAPotentialValuesImpl,
+                                      PotentialValuesState>;
+  AAPotentialValuesArgument(const IRPosition &IRP, Attributor &A)
+      : Base(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(..).
+  void initialize(Attributor &A) override {
+    LLVM_DEBUG(dbgs() << "[AAPotentialValuesArgument] initialize "
+                      << getAssociatedValue() << "\n");
+    if (!getAnchorScope() || getAnchorScope()->isDeclaration()) {
+      indicatePessimisticFixpoint();
+    } else {
+      Base::initialize(A);
+    }
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_ARG_ATTR(potential_values)
+  }
+};
+
+struct AAPotentialValuesReturned
+    : AAReturnedFromReturnedValues<AAPotentialValues, AAPotentialValuesImpl> {
+  using Base =
+      AAReturnedFromReturnedValues<AAPotentialValues, AAPotentialValuesImpl>;
+  AAPotentialValuesReturned(const IRPosition &IRP, Attributor &A)
+      : Base(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    LLVM_DEBUG(dbgs() << "\n\n[AAPotentialValuesReturned] initialize "
+                      << getAssociatedValue() << "\n");
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_FNRET_ATTR(potential_values)
+  }
+};
+
+struct AAPotentialValuesFloating : AAPotentialValuesImpl {
+  AAPotentialValuesFloating(const IRPosition &IRP, Attributor &A)
+      : AAPotentialValuesImpl(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(..).
+  void initialize(Attributor &A) override {
+    LLVM_DEBUG(dbgs() << "[AAPotentialValuesFloating] initialize \n");
+    Value &V = getAssociatedValue();
+
+    if (auto *C = dyn_cast<ConstantInt>(&V)) {
+      LLVM_DEBUG(dbgs() << "ConstantInt" << C->getValue()
+                        << ", indicate optimistic fix point\n");
+      unionAssumed(C->getValue());
+      indicateOptimisticFixpoint();
+      return;
+    }
+
+    if (isa<UndefValue>(&V)) {
+      LLVM_DEBUG(dbgs() << "UndefValue, optimistic\n");
+      indicateOptimisticFixpoint();
+      return;
+    }
+
+    if (isa<BinaryOperator>(&V) || isa<ICmpInst>(&V) || isa<CastInst>(&V)) {
+      LLVM_DEBUG(dbgs() << "BinaryOperator or ICmpInst or CastInst\n");
+      return;
+    }
+
+    if (isa<SelectInst>(V) || isa<PHINode>(V)) {
+      LLVM_DEBUG(dbgs() << "SelectInst or PHINode\n");
+      return;
+    }
+
+    indicatePessimisticFixpoint();
+
+    LLVM_DEBUG(dbgs() << "[AAPotentialValues] We give up: "
+                      << getAssociatedValue() << "\n");
+  }
+
+  ChangeStatus updateImpl(Attributor &A) override {
+
+    LLVM_DEBUG(dbgs() << "\n\n[AAPotentialValuesFloating] updateImpl "
+                      << getAssociatedValue() << "\n");
+
+    Value &V = getAssociatedValue();
+    Instruction *I = dyn_cast<Instruction>(&V);
+    auto AssumedBefore = getAssumed();
+
+    if (auto *ICI = dyn_cast<ICmpInst>(I)) {
+      LLVM_DEBUG(dbgs() << "update with ICmpInst\n");
+      Value *LHS = ICI->getOperand(0);
+      Value *RHS = ICI->getOperand(1);
+      // TODO: Allow non integers as well.
+      if (!LHS->getType()->isIntegerTy() || !RHS->getType()->isIntegerTy())
+        return indicatePessimisticFixpoint();
+
+      auto &LHSAA =
+          A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*LHS));
+      auto &RHSAA =
+          A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*RHS));
+
+      if (LHSAA.AssumedIsFull() || RHSAA.AssumedIsFull()) {
+        return indicatePessimisticFixpoint();
+      }
+
+      auto LHSAAPVS = LHSAA.getAssumedSet();
+      auto RHSAAPVS = RHSAA.getAssumedSet();
+
+      bool MaybeTrue = false, MaybeFalse = false;
+      for (auto &L : LHSAAPVS) {
+        for (auto &R : RHSAAPVS) {
+          LLVM_DEBUG(dbgs() << "calc cmp" << L.toString(10, true) << " "
+                            << R.toString(10, true) << "\n");
+          bool CmpResult = calcICmpInst(ICI, L, R);
+          MaybeTrue |= CmpResult;
+          MaybeFalse |= !CmpResult;
+        }
+      }
+      if (MaybeTrue)
+        unionAssumed(APInt(/* numBits */ 1, /* val */ 1));
+      if (MaybeFalse)
+        unionAssumed(APInt(/* numBits */ 1, /* val */ 0));
+      return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
+                                           : ChangeStatus::CHANGED;
+    }
+
+    if (auto *SI = dyn_cast<SelectInst>(I)) {
+      LLVM_DEBUG(dbgs() << "update with SelectInst\n");
+      Value *LHS = SI->getTrueValue();
+      Value *RHS = SI->getFalseValue();
+      if (!LHS->getType()->isIntegerTy() || !RHS->getType()->isIntegerTy())
+        return indicatePessimisticFixpoint();
+
+      // TODO: consider simplified condition value
+      auto &LHSAA =
+          A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*LHS));
+      auto &RHSAA =
+          A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*RHS));
+
+      if (LHSAA.AssumedIsFull() || RHSAA.AssumedIsFull())
+        return indicatePessimisticFixpoint();
+
+      LLVM_DEBUG(dbgs() << "union true value and false value\n");
+      unionAssumed(LHSAA);
+      unionAssumed(RHSAA);
+      return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
+                                           : ChangeStatus::CHANGED;
+    }
+
+    if (auto *CI = dyn_cast<CastInst>(I)) {
+      LLVM_DEBUG(dbgs() << "update with CastInst\n");
+      if (!CI->isIntegerCast())
+        return indicatePessimisticFixpoint();
+      assert(CI->getNumOperands() == 1 && "Expected cast to be unary!");
+      uint32_t ResultBitWidth = CI->getDestTy()->getIntegerBitWidth();
+      Value *Src = CI->getOperand(0);
+      auto &SrcAA =
+          A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*Src));
+      if (SrcAA.AssumedIsFull())
+        return indicatePessimisticFixpoint();
+      auto SrcAAPVS = SrcAA.getAssumedSet();
+      for (APInt &S : SrcAAPVS) {
+        APInt T = calcCastInst(CI, S, ResultBitWidth);
+        unionAssumed(T);
+      }
+      return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
+                                           : ChangeStatus::CHANGED;
+    }
+
+    // TODO: Binary Operator
+    if (auto *BinOp = dyn_cast<BinaryOperator>(I)) {
+      LLVM_DEBUG(dbgs() << "update with BinaryOperator\n");
+      Value *LHS = BinOp->getOperand(0);
+      Value *RHS = BinOp->getOperand(1);
+      // TODO: Allow non integers as well.
+      if (!LHS->getType()->isIntegerTy() || !RHS->getType()->isIntegerTy())
+        return indicatePessimisticFixpoint();
+
+      auto &LHSAA =
+          A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*LHS));
+      auto &RHSAA =
+          A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*RHS));
+
+      if (LHSAA.AssumedIsFull() || RHSAA.AssumedIsFull()) {
+        return indicatePessimisticFixpoint();
+      }
+
+      auto LHSAAPVS = LHSAA.getAssumedSet();
+      auto RHSAAPVS = RHSAA.getAssumedSet();
+
+      for (auto &L : LHSAAPVS) {
+        for (auto &R : RHSAAPVS) {
+          LLVM_DEBUG(dbgs()
+                     << "calculate binary operator" << L.toString(10, true)
+                     << " " << R.toString(10, true) << "\n");
+          bool ValidOperator = true;
+          APInt Result = calculateBinaryOperator(BinOp, L, R, ValidOperator);
+          if (!ValidOperator)
+            return indicatePessimisticFixpoint();
+          unionAssumed(Result);
+        }
+      }
+      return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
+                                           : ChangeStatus::CHANGED;
+    }
+
+    LLVM_DEBUG(
+        dbgs() << "[AAPotentialValuesFloating::updateImpl] We give up\n");
+    return indicatePessimisticFixpoint();
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_FLOATING_ATTR(potential_values)
+  }
+};
+
+struct AAPotentialValuesFunction : AAPotentialValuesImpl {
+  AAPotentialValuesFunction(const IRPosition &IRP, Attributor &A)
+      : AAPotentialValuesImpl(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    llvm_unreachable("AAPotentialValues(Function|CallSite)::updateImpl will "
+                     "not be called");
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_FN_ATTR(potential_values)
+  }
+};
+
+struct AAPotentialValuesCallSite : AAPotentialValuesFunction {
+  AAPotentialValuesCallSite(const IRPosition &IRP, Attributor &A)
+      : AAPotentialValuesFunction(IRP, A) {}
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_CS_ATTR(potential_values)
+  }
+};
+
+struct AAPotentialValuesCallSiteReturned
+    : AACallSiteReturnedFromReturned<AAPotentialValues, AAPotentialValuesImpl> {
+  AAPotentialValuesCallSiteReturned(const IRPosition &IRP, Attributor &A)
+      : AACallSiteReturnedFromReturned<AAPotentialValues,
+                                       AAPotentialValuesImpl>(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    LLVM_DEBUG(dbgs() << "[AAPotentialValuesCSReturned] initialize called: "
+                      << getAssociatedValue() << "\n");
+    AAPotentialValuesImpl::initialize(A);
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_CSRET_ATTR(potential_values)
+  }
+};
+
+struct AAPotentialValuesCallSiteArgument : AAPotentialValuesImpl {
+  AAPotentialValuesCallSiteArgument(const IRPosition &IRP, Attributor &A)
+      : AAPotentialValuesImpl(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    LLVM_DEBUG(dbgs() << "[AAPotentialValuesCSArgument] initialize called: "
+                      << getAssociatedValue() << "\n");
+    Value &V = getAssociatedValue();
+
+    if (auto *C = dyn_cast<ConstantInt>(&V)) {
+      LLVM_DEBUG(dbgs() << "ConstantInt " << C->getValue()
+                        << ", indicate optimistic fix point\n");
+      unionAssumed(C->getValue());
+      indicateOptimisticFixpoint();
+      return;
+    }
+
+    if (isa<UndefValue>(&V)) {
+      LLVM_DEBUG(dbgs() << "UndefValue, optimistic\n");
+      indicateOptimisticFixpoint();
+      return;
+    }
+  }
+
+  ChangeStatus updateImpl(Attributor &A) override {
+    Value &V = getAssociatedValue();
+    auto AssumedBefore = getAssumed();
+    auto &AA = A.getAAFor<AAPotentialValues>(*this, IRPosition::value(V));
+    const auto &S = AA.getAssumed();
+    unionAssumed(S);
+    return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
+                                         : ChangeStatus::CHANGED;
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_CSARG_ATTR(potential_values)
+  }
+};
+
 } // namespace
 
 const char AAReturnedValues::ID = 0;
@@ -7096,6 +7611,7 @@ const char AAPrivatizablePtr::ID = 0;
 const char AAMemoryBehavior::ID = 0;
 const char AAMemoryLocation::ID = 0;
 const char AAValueConstantRange::ID = 0;
+const char AAPotentialValues::ID = 0;
 
 // Macro magic to create the static generator function for attributes that
 // follow the naming scheme.
@@ -7205,6 +7721,7 @@ CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AADereferenceable)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAAlign)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANoCapture)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAValueConstantRange)
+CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAPotentialValues)
 
 CREATE_ALL_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAValueSimplify)
 CREATE_ALL_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAIsDead)

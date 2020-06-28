@@ -97,6 +97,7 @@
 #ifndef LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 #define LLVM_TRANSFORMS_IPO_ATTRIBUTOR_H
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/SetVector.h"
@@ -3065,6 +3066,216 @@ struct AAValueConstantRange
 
   /// See AbstractAttribute::getName()
   const std::string getName() const override { return "AAValueConstantRange"; }
+
+  /// Unique ID (due to the unique address)
+  static const char ID;
+};
+
+static const APInt EmptyKey = APInt::getAllOnesValue(100);
+static const APInt TombstoneKey = APInt::getAllOnesValue(101);
+
+// Provide DenseMapInfo for APInt.
+template <> struct DenseMapInfo<APInt> : DenseMapInfo<void *> {
+  static inline APInt getEmptyKey() { return EmptyKey; }
+  static inline APInt getTombstoneKey() { return TombstoneKey; }
+  static unsigned getHashValue(const APInt &Val) {
+    return (unsigned)Val.getLimitedValue();
+  }
+  static bool isEqual(const APInt &LHS, const APInt &RHS) {
+    if (LHS.getBitWidth() != RHS.getBitWidth())
+      return false;
+    return LHS == RHS;
+  }
+};
+
+struct PotentialValueSet {
+  using SetTy = DenseSet<APInt>;
+
+  PotentialValueSet(bool isFull) : isFull(isFull) {}
+
+  PotentialValueSet(const SetTy &PS) : isFull(false) { Set = PS; }
+
+  bool operator==(const PotentialValueSet &RHS) const {
+    if (isFull != RHS.isFull)
+      return false;
+    return Set == RHS.Set;
+  }
+
+  void insert(const APInt &C) {
+    if (isFull)
+      return;
+    Set.insert(C);
+  }
+
+  /// take union with R
+  void unionWith(const PotentialValueSet &R) {
+    /// if this is a full set, do nothing
+    if (isFull)
+      return;
+    /// if R is full set, change L to a full set
+    if (R.isFull) {
+      isFull = true;
+      return;
+    }
+    for (auto &e : R.Set) {
+      Set.insert(e);
+    }
+  }
+
+  /// take intersection with R
+  void intersectWith(const PotentialValueSet &R) {
+    /// if R is a full set, do nothing
+    if (R.isFull)
+      return;
+    /// if this is a full set, change this to R
+    if (isFull) {
+      *this = R;
+      return;
+    }
+    SmallVector<APInt, 8> eraseList;
+    for (auto &e : Set) {
+      if (!R.Set.count(e))
+        eraseList.push_back(e);
+    }
+    for (auto &e : eraseList) {
+      Set.erase(e);
+    }
+  }
+
+  bool isFull;
+  SetTy Set;
+};
+
+struct PotentialValuesState : AbstractState {
+
+  using SetTy = DenseSet<APInt>;
+
+  // first boolean value indicates wheather the set is a full set or not
+  using StateTy = PotentialValueSet;
+
+  PotentialValuesState() : Known(true), Assumed(false) {}
+
+  PotentialValuesState(const StateTy &PS) : Known(true), Assumed(PS) {}
+
+  /// See AbstractState::isValidState()
+  /// If the number of potential values become no less than 7, we give up
+  bool isValidState() const override {
+    return !Assumed.isFull && Assumed.Set.size() < 7;
+  }
+
+  /// See AbstractState::isAtFixpoint()
+  bool isAtFixpoint() const override { return Assumed == Known; }
+
+  ChangeStatus indicateOptimisticFixpoint() override {
+    Known = Assumed;
+    return ChangeStatus::UNCHANGED;
+  }
+
+  ChangeStatus indicatePessimisticFixpoint() override {
+    Assumed = Known;
+    return ChangeStatus::CHANGED;
+  }
+
+  static StateTy getBestState() { return StateTy(/* isFull */ false); }
+  static StateTy getBestState(PotentialValuesState &PVS) {
+    return getBestState();
+  }
+
+  static StateTy getWorstState() { return StateTy(/* isFull */ true); }
+
+  /// Return the assumed state
+  StateTy getAssumed() const { return Assumed; }
+
+  /// Return the known state
+  StateTy getKnown() const { return Known; }
+
+  bool AssumedIsFull() const { return Assumed.isFull; }
+
+  bool KnownIsFull() const { return Known.isFull; }
+
+  SetTy getAssumedSet() const { return Assumed.Set; }
+
+  SetTy getKnownSet() const { return Known.Set; }
+
+  void unionAssumed(const APInt &C) {
+    Assumed.insert(C);
+    Assumed.intersectWith(Known);
+  }
+
+  void unionAssumed(const StateTy &R) {
+    Assumed.unionWith(R);
+    Assumed.intersectWith(Known);
+  }
+
+  void unionAssumed(const PotentialValuesState &PVS) {
+    unionAssumed(PVS.getAssumed());
+  }
+
+  void unionKnown(const StateTy &R) {
+    Known.unionWith(R);
+    Assumed.intersectWith(Known);
+  }
+
+  void unionKnown(const PotentialValuesState &PVS) {
+    unionKnown(PVS.getKnown());
+  }
+
+  void intersectKnown(const StateTy &R) {
+    Assumed.intersectWith(R);
+    Known.intersectWith(R);
+  }
+
+  PotentialValuesState operator^=(const PotentialValuesState &PVS) {
+    unionAssumed(PVS);
+    return *this;
+  }
+
+  PotentialValuesState operator&=(const PotentialValuesState &PVS) {
+    unionKnown(PVS);
+    unionAssumed(PVS);
+    return *this;
+  }
+
+  StateTy Known, Assumed;
+};
+
+raw_ostream &operator<<(raw_ostream &OS, const PotentialValuesState &R);
+
+/// An abstract interface for potential values analysis.
+struct AAPotentialValues
+    : public StateWrapper<PotentialValuesState, AbstractAttribute> {
+  using Base = StateWrapper<PotentialValuesState, AbstractAttribute>;
+  AAPotentialValues(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
+
+  /// See AbstractAttribute::getState(...).
+  PotentialValuesState &getState() override { return *this; }
+  const AbstractState &getState() const override { return *this; }
+
+  /// Create an abstract attribute view for the position \p IRP.
+  static AAPotentialValues &createForPosition(const IRPosition &IRP,
+                                              Attributor &A);
+
+  /// virtual PotentialValuesState::SetTy &
+  /// getAssumedPotentialValues(Attributor &A,
+  ///                           const Instruction *CtxI = nullptr) const = 0;
+
+  /// virtual PotentialValuesState::SetTy &
+  /// getKnownPotentialValues(Attributor &A,
+  ///                         const Instruction *CtxI = nullptr) const = 0;
+
+  Optional<ConstantInt *>
+  getAssumedConstantInt(Attributor &A,
+                        const Instruction *CtxI = nullptr) const {
+    if (AssumedIsFull())
+      return nullptr;
+    if (getAssumedSet().size() == 1)
+      return cast<ConstantInt>(
+          ConstantInt::get(getAssociatedType(), *(getAssumedSet().begin())));
+    if (getAssumedSet().size() == 0)
+      return llvm::None;
+
+    return nullptr;
+  }
 
   /// Unique ID (due to the unique address)
   static const char ID;
