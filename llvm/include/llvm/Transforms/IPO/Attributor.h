@@ -3072,7 +3072,7 @@ struct AAValueConstantRange
   static const char ID;
 };
 
-/// Provide DenseMapInfo for APInt
+/// Provide DenseMapInfo for APInt.
 struct DenseMapAPIntKeyInfo {
   static inline APInt getEmptyKey() {
     APInt V(nullptr, 0);
@@ -3095,6 +3095,7 @@ struct DenseMapAPIntKeyInfo {
   }
 };
 
+/// A class for a set that the size of it can be infinitely large.
 template <typename MemberTy, typename KeyInfo = DenseMapInfo<MemberTy>>
 struct PotentialValueSet {
   using SetTy = DenseSet<MemberTy, KeyInfo>;
@@ -3115,12 +3116,12 @@ struct PotentialValueSet {
     Set.insert(C);
   }
 
-  /// take union with R
+  /// take union with R.
   void unionWith(const PotentialValueSet &R) {
-    /// if this is a full set, do nothing
+    /// if this is a full set, do nothing.;
     if (isFull)
       return;
-    /// if R is full set, change L to a full set
+    /// if R is full set, change L to a full set.
     if (R.isFull) {
       isFull = true;
       return;
@@ -3129,12 +3130,12 @@ struct PotentialValueSet {
       Set.insert(C);
   }
 
-  /// take intersection with R
+  /// take intersection with R.
   void intersectWith(const PotentialValueSet &R) {
-    /// if R is a full set, do nothing
+    /// if R is a full set, do nothing.
     if (R.isFull)
       return;
-    /// if this is a full set, change this to R
+    /// if this is a full set, change this to R.
     if (isFull) {
       *this = R;
       return;
@@ -3147,7 +3148,11 @@ struct PotentialValueSet {
     Set = intersectSet;
   }
 
+  /// This indicates whether the corresponding set is full set or not.
+  /// If this is true, the value of \p Set is meaningless.
   bool isFull;
+
+  /// When \p isFull is false, this corresponds to the actual set.
   SetTy Set;
 };
 
@@ -3161,11 +3166,11 @@ using PotentialConstantIntValueSet =
 //                        cl::init(7));
 static const unsigned MaxPotentialValues = 7;
 
+/// State for potential values.
 struct PotentialValuesState : AbstractState {
 
   using SetTy = PotentialConstantIntValueSet::SetTy;
 
-  // first boolean value indicates wheather the set is a full set or not
   using StateTy = PotentialConstantIntValueSet;
 
   PotentialValuesState() : Known(true), Assumed(false) {}
@@ -3173,7 +3178,8 @@ struct PotentialValuesState : AbstractState {
   PotentialValuesState(const StateTy &PS) : Known(true), Assumed(PS) {}
 
   /// See AbstractState::isValidState()
-  /// If the number of potential values become no less than 7, we give up
+  /// If the number of potential values become no less than threshold, we give
+  /// up.
   bool isValidState() const override {
     return !Assumed.isFull && Assumed.Set.size() < MaxPotentialValues;
   }
@@ -3181,65 +3187,82 @@ struct PotentialValuesState : AbstractState {
   /// See AbstractState::isAtFixpoint()
   bool isAtFixpoint() const override { return Assumed == Known; }
 
+  /// See AbstractState::indicateOptimisticFixpoint(...)
   ChangeStatus indicateOptimisticFixpoint() override {
     Known = Assumed;
     return ChangeStatus::UNCHANGED;
   }
 
+  /// See AbstractState::indicatePessimisticFixpoint(...)
   ChangeStatus indicatePessimisticFixpoint() override {
     Assumed = Known;
     return ChangeStatus::CHANGED;
   }
 
+  /// Return empty set as the best state of potential values.
   static StateTy getBestState() { return StateTy(/* isFull */ false); }
   static StateTy getBestState(PotentialValuesState &PVS) {
     return getBestState();
   }
 
+  /// Return full set as the worst state of potential values.
   static StateTy getWorstState() { return StateTy(/* isFull */ true); }
 
-  /// Return the assumed state
+  /// Return the assumed state.
   StateTy getAssumed() const { return Assumed; }
 
-  /// Return the known state
+  /// Return the known state.
   StateTy getKnown() const { return Known; }
 
+  /// Return the assumed set is full set or not.
   bool AssumedIsFull() const { return Assumed.isFull; }
 
+  /// Return the known set is full set or not.
   bool KnownIsFull() const { return Known.isFull; }
 
+  /// Return the assumed set.
+  /// Note: If AssumedIsFull() is true, this is meaningless.
   SetTy getAssumedSet() const { return Assumed.Set; }
 
+  /// Return the known set.
+  /// Note: If KnownIsFull() is true, this is meaningless.
   SetTy getKnownSet() const { return Known.Set; }
 
+  /// Unite assumed set with the passed value.
   void unionAssumed(const APInt &C) {
     Assumed.insert(C);
     Assumed.intersectWith(Known);
   }
 
+  /// Unite assumed set with the passed state.
   void unionAssumed(const StateTy &R) {
     Assumed.unionWith(R);
     Assumed.intersectWith(Known);
   }
 
+  /// Unite assumed set with assumed set of the passed state \p PVS.
   void unionAssumed(const PotentialValuesState &PVS) {
     unionAssumed(PVS.getAssumed());
   }
 
+  /// Unite known set with the passed state.
   void unionKnown(const StateTy &R) {
     Known.unionWith(R);
     Assumed.intersectWith(Known);
   }
 
+  /// Unite known set with known set of the passed state \p PVS.
   void unionKnown(const PotentialValuesState &PVS) {
     unionKnown(PVS.getKnown());
   }
 
+  /// Intersect known set with the passed state.
   void intersectKnown(const StateTy &R) {
     Assumed.intersectWith(R);
     Known.intersectWith(R);
   }
 
+  /// "Clamp" this state with \p PVS.
   PotentialValuesState operator^=(const PotentialValuesState &PVS) {
     unionAssumed(PVS);
     return *this;
@@ -3251,7 +3274,11 @@ struct PotentialValuesState : AbstractState {
     return *this;
   }
 
-  StateTy Known, Assumed;
+  /// Set representing known set of potential values.
+  StateTy Known;
+
+  /// Set representing assumed set of potential values.
+  StateTy Assumed;
 };
 
 raw_ostream &operator<<(raw_ostream &OS, const PotentialValuesState &R);
@@ -3270,6 +3297,7 @@ struct AAPotentialValues
   static AAPotentialValues &createForPosition(const IRPosition &IRP,
                                               Attributor &A);
 
+  /// Return assumed constant for the associated value
   Optional<ConstantInt *>
   getAssumedConstantInt(Attributor &A,
                         const Instruction *CtxI = nullptr) const {

@@ -7103,10 +7103,7 @@ struct AAPotentialValuesImpl : AAPotentialValues {
       OS << "full-set";
     } else {
       for (auto &it : getKnown().Set) {
-        if (it.getBitWidth() == 0)
-          OS << "yabai";
-        else
-          OS << it << " , ";
+        OS << it << " , ";
       }
     }
     OS << "} / {";
@@ -7114,10 +7111,7 @@ struct AAPotentialValuesImpl : AAPotentialValues {
       OS << "full-set";
     } else {
       for (auto &it : getAssumed().Set) {
-        if (it.getBitWidth() == 0)
-          OS << "yabai";
-        else
-          OS << it << " , ";
+        OS << it << " , ";
       }
     }
     OS << "} >";
@@ -7177,6 +7171,7 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     }
 
     if (isa<UndefValue>(&V)) {
+      // Collapse the undef state to 0.
       unionAssumed(
           APInt(/* numBits */ getAssociatedType()->getIntegerBitWidth(),
                 /* val */ 0));
@@ -7245,6 +7240,8 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
                                        const APInt &LHS, const APInt &RHS,
                                        bool &Valid) {
     Instruction::BinaryOps BinOpcode = BinOp->getOpcode();
+    // Valid is set to false when the binary operator is not supported or
+    // division by zero occur.
     Valid = true;
     APInt LHSCopy = LHS;
     switch (BinOpcode) {
@@ -7307,9 +7304,8 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     auto &LHSAA = A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*LHS));
     auto &RHSAA = A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*RHS));
 
-    if (!LHSAA.isValidState() || !RHSAA.isValidState()) {
+    if (!LHSAA.isValidState() || !RHSAA.isValidState())
       return indicatePessimisticFixpoint();
-    }
 
     auto LHSAAPVS = LHSAA.getAssumedSet();
     auto RHSAAPVS = RHSAA.getAssumedSet();
@@ -7380,9 +7376,8 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     auto &LHSAA = A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*LHS));
     auto &RHSAA = A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*RHS));
 
-    if (!LHSAA.isValidState() || !RHSAA.isValidState()) {
+    if (!LHSAA.isValidState() || !RHSAA.isValidState())
       return indicatePessimisticFixpoint();
-    }
 
     auto LHSAAPVS = LHSAA.getAssumedSet();
     auto RHSAAPVS = RHSAA.getAssumedSet();
