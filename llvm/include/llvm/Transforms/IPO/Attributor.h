@@ -117,6 +117,7 @@
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/Utils/CallGraphUpdater.h"
 
 namespace llvm {
@@ -3153,6 +3154,12 @@ struct PotentialValueSet {
 using PotentialConstantIntValueSet =
     PotentialValueSet<APInt, DenseMapAPIntKeyInfo>;
 
+static cl::opt<unsigned>
+    MaxPotentialValues("attributor-max-potential-values", cl::Hidden,
+                       cl::desc("Maximal number of potential values to be "
+                                "tracked for each position."),
+                       cl::init(7));
+
 struct PotentialValuesState : AbstractState {
 
   using SetTy = PotentialConstantIntValueSet::SetTy;
@@ -3167,7 +3174,7 @@ struct PotentialValuesState : AbstractState {
   /// See AbstractState::isValidState()
   /// If the number of potential values become no less than 7, we give up
   bool isValidState() const override {
-    return !Assumed.isFull && Assumed.Set.size() < 7;
+    return !Assumed.isFull && Assumed.Set.size() < MaxPotentialValues;
   }
 
   /// See AbstractState::isAtFixpoint()
