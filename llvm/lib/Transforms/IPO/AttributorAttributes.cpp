@@ -42,6 +42,14 @@ static cl::opt<bool> ManifestInternal(
 static cl::opt<int> MaxHeapToStackSize("max-heap-to-stack-size", cl::init(128),
                                        cl::Hidden);
 
+static cl::opt<unsigned, true> MaxPotentialValues(
+    "attributor-max-potential-values", cl::Hidden,
+    cl::desc("Maximal number of potential values to be "
+             "tracked for each position."),
+    cl::location(llvm::PotentialValuesState::MaxNumOfTrackedPotentialValues),
+    cl::init(7));
+unsigned llvm::PotentialValuesState::MaxNumOfTrackedPotentialValues;
+
 STATISTIC(NumAAs, "Number of abstract attributes created");
 
 // Some helper macros to deal with statistics tracking.
