@@ -3159,13 +3159,6 @@ struct PotentialValueSet {
 using PotentialConstantIntValueSet =
     PotentialValueSet<APInt, DenseMapAPIntKeyInfo>;
 
-// static cl::opt<unsigned>
-//     MaxPotentialValues("attributor-max-potential-values", cl::Hidden,
-//                        cl::desc("Maximal number of potential values to be "
-//                                 "tracked for each position."),
-//                        cl::init(7));
-static const unsigned MaxPotentialValues = 7;
-
 /// State for potential values.
 struct PotentialValuesState : AbstractState {
 
@@ -3279,6 +3272,10 @@ struct PotentialValuesState : AbstractState {
 
   /// Set representing assumed set of potential values.
   StateTy Assumed;
+
+  /// maximal number of potential values to be tracked.
+  /// This is set by -attributor-max-potential-values option
+  static unsigned MaxPotentialValues;
 };
 
 raw_ostream &operator<<(raw_ostream &OS, const PotentialValuesState &R);
@@ -3304,8 +3301,8 @@ struct AAPotentialValues
     if (AssumedIsFull())
       return nullptr;
     if (getAssumedSet().size() == 1)
-      return cast<ConstantInt>(
-          ConstantInt::get(getAssociatedType(), *(getAssumedSet().begin())));
+      return cast<ConstantInt>(ConstantInt::get(getAssociatedValue().getType(),
+                                                *(getAssumedSet().begin())));
     if (getAssumedSet().size() == 0)
       return llvm::None;
 
