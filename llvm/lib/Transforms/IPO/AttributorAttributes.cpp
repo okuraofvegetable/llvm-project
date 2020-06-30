@@ -4374,11 +4374,14 @@ struct AAValueSimplifyImpl : AAValueSimplify {
     return true;
   }
 
+  /// Returns a candidate is found or not
+  /// \p failAll is true when nullptr is returned by all other AAs
+  /// If at least one AA returns llvm::None, a candidate may be found in later
+  /// iteration.
   template <typename AAType>
-  void askSimplifiedValueFor(Attributor &A, bool &failAll,
-                             bool &conflictAssumedConstantInt) {
+  bool askSimplifiedValueFor(Attributor &A, bool &failAll) {
     if (!getAssociatedValue().getType()->isIntegerTy())
-      return;
+      return false;
 
     const auto &AA =
         A.getAAFor<AAType>(*this, getIRPosition(), /* TrackDependence */ true,
@@ -4386,28 +4389,27 @@ struct AAValueSimplifyImpl : AAValueSimplify {
 
     Optional<ConstantInt *> COpt = AA.getAssumedConstantInt(A);
 
-    if (!COpt.hasValue())
+    if (!COpt.hasValue()) {
       failAll = false;
-    else if (auto *C = COpt.getValue()) {
-      if (SimplifiedAssociatedValue.hasValue())
-        conflictAssumedConstantInt |=
-            (C->getValue() !=
-             cast<ConstantInt>(SimplifiedAssociatedValue.getValue())
-                 ->getValue());
-      SimplifiedAssociatedValue = C;
-      failAll = false;
+      return false;
+    } else {
+      if (auto *C = COpt.getValue()) {
+        SimplifiedAssociatedValue = C;
+        return true;
+      } else {
+        return false;
+      }
     }
   }
 
   bool askSimplifiedValueForOtherAAs(Attributor &A) {
     bool failAll = true;
-    bool conflictAssumedConstantInt = false;
     SimplifiedAssociatedValue = llvm::None;
-    askSimplifiedValueFor<AAValueConstantRange>(A, failAll,
-                                                conflictAssumedConstantInt);
-    askSimplifiedValueFor<AAPotentialValues>(A, failAll,
-                                             conflictAssumedConstantInt);
-    return !conflictAssumedConstantInt && !failAll;
+    if (askSimplifiedValueFor<AAValueConstantRange>(A, failAll))
+      return true;
+    if (askSimplifiedValueFor<AAPotentialValues>(A, failAll))
+      return true;
+    return !failAll;
   }
 
   /// See AbstractAttribute::manifest(...).
