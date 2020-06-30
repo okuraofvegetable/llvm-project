@@ -28,11 +28,11 @@ define i1 @potential_test1(i1 %c) {
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@potential_test1
 ; IS__CGSCC____-SAME: (i1 [[C:%.*]])
 ; IS__CGSCC____-NEXT:    [[ARG:%.*]] = select i1 [[C]], i32 -1, i32 1
-; IS__CGSCC____-NEXT:    [[RET:%.*]] = tail call i1 @iszero1(i32 [[ARG]])
+; IS__CGSCC____-NEXT:    [[RET:%.*]] = call i1 @iszero1(i32 [[ARG]])
 ; IS__CGSCC____-NEXT:    ret i1 [[RET]]
 ;
   %arg = select i1 %c, i32 -1, i32 1
-  %ret = tail call i1 @iszero1(i32 %arg)
+  %ret = call i1 @iszero1(i32 %arg)
   ret i1 %ret
 }
 
@@ -61,14 +61,15 @@ define internal i32 @call_with_two_values(i32 %c) {
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@call_with_two_values
 ; IS__CGSCC____-SAME: (i32 [[C:%.*]])
 ; IS__CGSCC____-NEXT:    [[CSRET1:%.*]] = call i32 @iszero2(i32 [[C]])
-; IS__CGSCC____-NEXT:    [[MINUSC:%.*]] = sub nsw i32 0, [[C]]
+; IS__CGSCC____-NEXT:    [[MINUSC:%.*]] = sub i32 0, [[C]]
 ; IS__CGSCC____-NEXT:    [[CSRET2:%.*]] = call i32 @iszero2(i32 [[MINUSC]])
 ; IS__CGSCC____-NEXT:    [[RET:%.*]] = add i32 [[CSRET1]], [[CSRET2]]
 ; IS__CGSCC____-NEXT:    ret i32 [[RET]]
 ;
-  %csret1 = tail call i32 @call_with_two_values(i32 1)
-  %csret2 = tail call i32 @call_with_two_values(i32 -1)
-  %ret = add nsw i32 %csret1, %csret2
+  %csret1 = call i32 @iszero2(i32 %c)
+  %minusc = sub i32 0, %c
+  %csret2 = call i32 @iszero2(i32 %minusc)
+  %ret = add i32 %csret1, %csret2
   ret i32 %ret
 }
 
@@ -81,13 +82,12 @@ define i32 @potential_test2(i1 %c) {
 ; IS__CGSCC____-SAME: (i1 [[C:%.*]])
 ; IS__CGSCC____-NEXT:    [[CSRET1:%.*]] = call i32 @call_with_two_values(i32 1)
 ; IS__CGSCC____-NEXT:    [[CSRET2:%.*]] = call i32 @call_with_two_values(i32 -1)
-; IS__CGSCC____-NEXT:    [[RET:%.*]] = select i1 [[C]], i32 [[CSRET1]], i32 [[CSRET2]]
+; IS__CGSCC____-NEXT:    [[RET:%.*]] = add i32 [[CSRET1]], [[CSRET2]]
 ; IS__CGSCC____-NEXT:    ret i32 [[RET]]
 ;
-  %csret1 = tail call i32 @iszero2(i32 %c)
-  %minusc = sub nsw i32 0, %c
-  %csret2 = tail call i32 @iszero2(i32 %minusc)
-  %ret = add nsw i32 %csret1, %csret2
+  %csret1 = call i32 @call_with_two_values(i32 1)
+  %csret2 = call i32 @call_with_two_values(i32 -1)
+  %ret = add i32 %csret1, %csret2
   ret i32 %ret
 }
 
@@ -121,11 +121,8 @@ define internal i32 @less_than_two(i32 %c) {
 ; IS__CGSCC____-NEXT:    [[RET:%.*]] = zext i1 [[CMP]] to i32
 ; IS__CGSCC____-NEXT:    ret i32 [[RET]]
 ;
-  %cmp1 = tail call i32 @iszero3(i32 0)
-  %true1 = tail call i32 @zero_or_one(i32 %cmp1)
-  %cmp2 = tail call i32 @iszero3(i32 1)
-  %true2 = tail call i32 @zero_or_one(i32 %cmp2)
-  %ret = add nsw i32 %true1, %true2
+  %cmp = icmp slt i32 %c, 2
+  %ret = zext i1 %cmp to i32
   ret i32 %ret
 }
 
@@ -141,8 +138,11 @@ define i32 @potential_test3() {
 ; IS__CGSCC____-NEXT:    [[RET:%.*]] = add i32 [[TRUE1]], [[TRUE2]]
 ; IS__CGSCC____-NEXT:    ret i32 [[RET]]
 ;
-  %cmp = icmp slt i32 %c, 2
-  %ret = zext i1 %cmp to i32
+  %cmp1 = call i32 @iszero3(i32 0)
+  %true1 = call i32 @less_than_two(i32 %cmp1)
+  %cmp2 = call i32 @iszero3(i32 1)
+  %true2 = call i32 @less_than_two(i32 %cmp2)
+  %ret = add i32 %true1, %true2
   ret i32 %ret
 }
 
@@ -169,7 +169,7 @@ define i32 @potential_test4(i32 %c) {
 ; IS__CGSCC____-NEXT:    [[RET:%.*]] = zext i1 [[FALSE]] to i32
 ; IS__CGSCC____-NEXT:    ret i32 [[RET]]
 ;
-  %csret = tail call i32 @return1or3(i32 %c)
+  %csret = call i32 @return1or3(i32 %c)
   %false = icmp eq i32 %csret, 2
   %ret = zext i1 %false to i32
   ret i32 %ret
@@ -188,8 +188,8 @@ define i32 @potential_test5(i32 %c) {
 ; IS__CGSCC____-NEXT:    [[RET:%.*]] = zext i1 [[FALSE]] to i32
 ; IS__CGSCC____-NEXT:    ret i32 [[RET]]
 ;
-  %csret1 = tail call i32 @return1or3(i32 %c)
-  %csret2 = tail call i32 @return2or4(i32 %c)
+  %csret1 = call i32 @return1or3(i32 %c)
+  %csret2 = call i32 @return2or4(i32 %c)
   %false = icmp eq i32 %csret1, %csret2
   %ret = zext i1 %false to i32
   ret i32 %ret
