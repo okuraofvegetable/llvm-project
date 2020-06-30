@@ -46,9 +46,8 @@ static cl::opt<unsigned, true> MaxPotentialValues(
     "attributor-max-potential-values", cl::Hidden,
     cl::desc("Maximal number of potential values to be "
              "tracked for each position."),
-    cl::location(llvm::PotentialValuesState::MaxNumOfTrackedPotentialValues),
-    cl::init(7));
-unsigned llvm::PotentialValuesState::MaxNumOfTrackedPotentialValues;
+    cl::location(llvm::PotentialValuesState::MaxPotentialValues), cl::init(7));
+unsigned llvm::PotentialValuesState::MaxPotentialValues;
 
 STATISTIC(NumAAs, "Number of abstract attributes created");
 
@@ -4378,7 +4377,7 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   template <typename AAType>
   void askSimplifiedValueFor(Attributor &A, bool &failAll,
                              bool &conflictAssumedConstantInt) {
-    if (!getAssociatedType()->isIntegerTy())
+    if (!getAssociatedValue().getType()->isIntegerTy())
       return;
 
     const auto &AA =
@@ -4392,7 +4391,9 @@ struct AAValueSimplifyImpl : AAValueSimplify {
     else if (auto *C = COpt.getValue()) {
       if (SimplifiedAssociatedValue.hasValue())
         conflictAssumedConstantInt |=
-            (C != SimplifiedAssociatedValue.getValue());
+            (C->getValue() !=
+             cast<ConstantInt>(SimplifiedAssociatedValue.getValue())
+                 ->getValue());
       SimplifiedAssociatedValue = C;
       failAll = false;
     }
@@ -4401,6 +4402,7 @@ struct AAValueSimplifyImpl : AAValueSimplify {
   bool askSimplifiedValueForOtherAAs(Attributor &A) {
     bool failAll = true;
     bool conflictAssumedConstantInt = false;
+    SimplifiedAssociatedValue = llvm::None;
     askSimplifiedValueFor<AAValueConstantRange>(A, failAll,
                                                 conflictAssumedConstantInt);
     askSimplifiedValueFor<AAPotentialValues>(A, failAll,
