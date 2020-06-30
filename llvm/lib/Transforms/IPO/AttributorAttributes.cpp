@@ -7109,23 +7109,7 @@ struct AAPotentialValuesImpl : AAPotentialValues {
   const std::string getAsStr() const override {
     std::string Str;
     llvm::raw_string_ostream OS(Str);
-    OS << "set-state < {";
-    if (getKnown().isFull) {
-      OS << "full-set";
-    } else {
-      for (auto &it : getKnown().Set) {
-        OS << it << " , ";
-      }
-    }
-    OS << "} / {";
-    if (getAssumed().isFull) {
-      OS << "full-set";
-    } else {
-      for (auto &it : getAssumed().Set) {
-        OS << it << " , ";
-      }
-    }
-    OS << "} >";
+    OS << getState();
     return OS.str();
   }
 };
