@@ -349,4 +349,3 @@ end:
   %ret = icmp eq i32 %c.0, 0
   ret i1 %ret
 }
-
