@@ -4374,42 +4374,24 @@ struct AAValueSimplifyImpl : AAValueSimplify {
     return true;
   }
 
-  /// Returns a candidate is found or not
-  /// \p failAll is true when nullptr is returned by all other AAs
-  /// If at least one AA returns llvm::None, a candidate may be found in later
-  /// iteration.
-  template <typename AAType>
-  bool askSimplifiedValueFor(Attributor &A, bool &failAll) {
+  bool askSimplifiedValueForAAValueConstantRange(Attributor &A) {
     if (!getAssociatedValue().getType()->isIntegerTy())
       return false;
 
-    const auto &AA =
-        A.getAAFor<AAType>(*this, getIRPosition(), /* TrackDependence */ true,
-                           DepClassTy::OPTIONAL);
+    const auto &ValueConstantRangeAA =
+        A.getAAFor<AAValueConstantRange>(*this, getIRPosition());
 
-    Optional<ConstantInt *> COpt = AA.getAssumedConstantInt(A);
-
-    if (!COpt.hasValue()) {
-      failAll = false;
-      return false;
-    } else {
-      if (auto *C = COpt.getValue()) {
+    Optional<ConstantInt *> COpt =
+        ValueConstantRangeAA.getAssumedConstantInt(A);
+    if (COpt.hasValue()) {
+      if (auto *C = COpt.getValue())
         SimplifiedAssociatedValue = C;
-        return true;
-      } else {
+      else
         return false;
-      }
+    } else {
+      SimplifiedAssociatedValue = llvm::None;
     }
-  }
-
-  bool askSimplifiedValueForOtherAAs(Attributor &A) {
-    bool failAll = true;
-    SimplifiedAssociatedValue = llvm::None;
-    if (askSimplifiedValueFor<AAValueConstantRange>(A, failAll))
-      return true;
-    if (askSimplifiedValueFor<AAPotentialValues>(A, failAll))
-      return true;
-    return !failAll;
+    return true;
   }
 
   /// See AbstractAttribute::manifest(...).
@@ -4516,7 +4498,7 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
     bool AllCallSitesKnown;
     if (!A.checkForAllCallSites(PredForCallSite, *this, true,
                                 AllCallSitesKnown))
-      if (!askSimplifiedValueForOtherAAs(A))
+      if (!askSimplifiedValueForAAValueConstantRange(A))
         return indicatePessimisticFixpoint();
 
     // If a candicate was found in this update, return CHANGED.
@@ -4544,7 +4526,7 @@ struct AAValueSimplifyReturned : AAValueSimplifyImpl {
     };
 
     if (!A.checkForAllReturnedValues(PredForReturned, *this))
-      if (!askSimplifiedValueForOtherAAs(A))
+      if (!askSimplifiedValueForAAValueConstantRange(A))
         return indicatePessimisticFixpoint();
 
     // If a candicate was found in this update, return CHANGED.
@@ -4634,10 +4616,11 @@ struct AAValueSimplifyFloating : AAValueSimplifyImpl {
     if (!genericValueTraversal<AAValueSimplify, bool>(
             A, getIRPosition(), *this, Dummy, VisitValueCB, getCtxI(),
             /* UseValueSimplify */ false))
-      if (!askSimplifiedValueForOtherAAs(A))
+      if (!askSimplifiedValueForAAValueConstantRange(A))
         return indicatePessimisticFixpoint();
 
     // If a candicate was found in this update, return CHANGED.
+
     return HasValueBefore == SimplifiedAssociatedValue.hasValue()
                ? ChangeStatus::UNCHANGED
                : ChangeStatus ::CHANGED;
