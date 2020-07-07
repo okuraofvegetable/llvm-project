@@ -3166,9 +3166,9 @@ struct PotentialValuesState : AbstractState {
 
   using StateTy = PotentialConstantIntValueSet;
 
-  PotentialValuesState() : Known(true), Assumed(false) {}
+  PotentialValuesState() : Assumed(false) {}
 
-  PotentialValuesState(const StateTy &PS) : Known(true), Assumed(PS) {}
+  PotentialValuesState(const StateTy &PS) : Assumed(PS) {}
 
   /// See AbstractState::isValidState()
   /// If the number of potential values become no less than threshold, we give
@@ -3178,17 +3178,16 @@ struct PotentialValuesState : AbstractState {
   }
 
   /// See AbstractState::isAtFixpoint()
-  bool isAtFixpoint() const override { return Assumed == Known; }
+  bool isAtFixpoint() const override { return AssumedIsFull(); }
 
   /// See AbstractState::indicateOptimisticFixpoint(...)
   ChangeStatus indicateOptimisticFixpoint() override {
-    Known = Assumed;
     return ChangeStatus::UNCHANGED;
   }
 
   /// See AbstractState::indicatePessimisticFixpoint(...)
   ChangeStatus indicatePessimisticFixpoint() override {
-    Assumed = Known;
+    Assumed.isFull = true;
     return ChangeStatus::CHANGED;
   }
 
@@ -3204,55 +3203,21 @@ struct PotentialValuesState : AbstractState {
   /// Return the assumed state.
   StateTy getAssumed() const { return Assumed; }
 
-  /// Return the known state.
-  StateTy getKnown() const { return Known; }
-
   /// Return the assumed set is full set or not.
   bool AssumedIsFull() const { return Assumed.isFull; }
 
-  /// Return the known set is full set or not.
-  bool KnownIsFull() const { return Known.isFull; }
-
-  /// Return the assumed set.
   /// Note: If AssumedIsFull() is true, this is meaningless.
   SetTy getAssumedSet() const { return Assumed.Set; }
 
-  /// Return the known set.
-  /// Note: If KnownIsFull() is true, this is meaningless.
-  SetTy getKnownSet() const { return Known.Set; }
-
   /// Unite assumed set with the passed value.
-  void unionAssumed(const APInt &C) {
-    Assumed.insert(C);
-    Assumed.intersectWith(Known);
-  }
+  void unionAssumed(const APInt &C) { Assumed.insert(C); }
 
   /// Unite assumed set with the passed state.
-  void unionAssumed(const StateTy &R) {
-    Assumed.unionWith(R);
-    Assumed.intersectWith(Known);
-  }
+  void unionAssumed(const StateTy &R) { Assumed.unionWith(R); }
 
   /// Unite assumed set with assumed set of the passed state \p PVS.
   void unionAssumed(const PotentialValuesState &PVS) {
     unionAssumed(PVS.getAssumed());
-  }
-
-  /// Unite known set with the passed state.
-  void unionKnown(const StateTy &R) {
-    Known.unionWith(R);
-    Assumed.intersectWith(Known);
-  }
-
-  /// Unite known set with known set of the passed state \p PVS.
-  void unionKnown(const PotentialValuesState &PVS) {
-    unionKnown(PVS.getKnown());
-  }
-
-  /// Intersect known set with the passed state.
-  void intersectKnown(const StateTy &R) {
-    Assumed.intersectWith(R);
-    Known.intersectWith(R);
   }
 
   /// "Clamp" this state with \p PVS.
@@ -3262,13 +3227,9 @@ struct PotentialValuesState : AbstractState {
   }
 
   PotentialValuesState operator&=(const PotentialValuesState &PVS) {
-    unionKnown(PVS);
     unionAssumed(PVS);
     return *this;
   }
-
-  /// Set representing known set of potential values.
-  StateTy Known;
 
   /// Set representing assumed set of potential values.
   StateTy Assumed;
@@ -3308,6 +3269,9 @@ struct AAPotentialValues
 
     return nullptr;
   }
+
+  /// See AbstractAttribute::getName()
+  const std::string getName() const override { return "AAPotentialValues"; }
 
   /// Unique ID (due to the unique address)
   static const char ID;

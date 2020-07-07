@@ -2028,12 +2028,6 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, const AbstractAttribute &AA) {
 
 raw_ostream &llvm::operator<<(raw_ostream &OS, const PotentialValuesState &S) {
   OS << "set-state(< {";
-  if (S.KnownIsFull())
-    OS << "full-set";
-  else
-    for (auto &it : S.getKnownSet())
-      OS << it << ", ";
-  OS << "} / {";
   if (S.AssumedIsFull())
     OS << "full-set";
   else
