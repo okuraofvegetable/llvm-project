@@ -2331,20 +2331,16 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
   /// Returns true if 'From' instruction is assumed to reach, 'To' instruction.
   /// Users should provide two positions they are interested in, and the class
   /// determines (and caches) reachability.
-  bool isAssumedReachable(const Instruction *From, const Instruction *To,
-                          Attributor &A) const {
-    const auto &LivenessAA =
-        A.getAAFor<AAIsDead>(*this, IRPosition::value(*From));
-    if (A.isAssumedDead(*From, this, &LivenessAA))
-      return false;
+  bool isAssumedReachable(Attributor &A, const Instruction *From,
+                          const Instruction *To) const {
     return A.getInfoCache().getPotentiallyReachable(From, To);
   }
 
   /// Returns true if 'From' instruction is known to reach, 'To' instruction.
   /// Users should provide two positions they are interested in, and the class
   /// determines (and caches) reachability.
-  bool isKnownReachable(const Instruction *From, const Instruction *To,
-                        Attributor &A) const {
+  bool isKnownReachable(Attributor &A, const Instruction *From,
+                        const Instruction *To) const {
     return A.getInfoCache().getPotentiallyReachable(From, To);
   }
 
