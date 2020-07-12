@@ -716,14 +716,14 @@ struct InformationCache {
   const RetainedKnowledgeMap &getKnowledgeMap() const { return KnowledgeMap; }
 
   /// Return if \p To is potentially reachable form \p From or not
-  bool getPotentiallyReachable(const Instruction *From, const Instruction *To) {
-    auto KeyPair = std::make_pair(From, To);
+  bool getPotentiallyReachable(const Instruction &From, const Instruction &To) {
+    auto KeyPair = std::make_pair(&From, &To);
     auto Iter = PotentiallyReachableMap.find(KeyPair);
-    const Function &F = *From->getFunction();
     if (Iter != PotentiallyReachableMap.end())
       return Iter->second;
+    const Function &F = *From.getFunction();
     bool Result = isPotentiallyReachable(
-        From, To, nullptr, AG.getAnalysis<DominatorTreeAnalysis>(F),
+        &From, &To, nullptr, AG.getAnalysis<DominatorTreeAnalysis>(F),
         AG.getAnalysis<LoopAnalysis>(F));
     PotentiallyReachableMap.insert(std::make_pair(KeyPair, Result));
     return Result;
@@ -2333,7 +2333,7 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
   /// determines (and caches) reachability.
   bool isAssumedReachable(Attributor &A, const Instruction *From,
                           const Instruction *To) const {
-    return A.getInfoCache().getPotentiallyReachable(From, To);
+    return A.getInfoCache().getPotentiallyReachable(*From, *To);
   }
 
   /// Returns true if 'From' instruction is known to reach, 'To' instruction.
@@ -2341,7 +2341,7 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
   /// determines (and caches) reachability.
   bool isKnownReachable(Attributor &A, const Instruction *From,
                         const Instruction *To) const {
-    return A.getInfoCache().getPotentiallyReachable(From, To);
+    return A.getInfoCache().getPotentiallyReachable(*From, *To);
   }
 
   /// Create an abstract attribute view for the position \p IRP.
