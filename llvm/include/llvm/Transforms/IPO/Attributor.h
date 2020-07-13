@@ -716,6 +716,7 @@ struct InformationCache {
   const RetainedKnowledgeMap &getKnowledgeMap() const { return KnowledgeMap; }
 
   /// Return if \p To is potentially reachable form \p From or not
+  /// If the same query was answered, return cached result
   bool getPotentiallyReachable(const Instruction &From, const Instruction &To) {
     auto KeyPair = std::make_pair(&From, &To);
     auto Iter = PotentiallyReachableMap.find(KeyPair);
