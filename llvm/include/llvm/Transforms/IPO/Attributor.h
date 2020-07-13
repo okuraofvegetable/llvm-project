@@ -2331,17 +2331,17 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
   /// Returns true if 'From' instruction is assumed to reach, 'To' instruction.
   /// Users should provide two positions they are interested in, and the class
   /// determines (and caches) reachability.
-  bool isAssumedReachable(Attributor &A, const Instruction *From,
-                          const Instruction *To) const {
-    return A.getInfoCache().getPotentiallyReachable(*From, *To);
+  bool isAssumedReachable(Attributor &A, const Instruction &From,
+                          const Instruction &To) const {
+    return A.getInfoCache().getPotentiallyReachable(From, To);
   }
 
   /// Returns true if 'From' instruction is known to reach, 'To' instruction.
   /// Users should provide two positions they are interested in, and the class
   /// determines (and caches) reachability.
-  bool isKnownReachable(Attributor &A, const Instruction *From,
-                        const Instruction *To) const {
-    return A.getInfoCache().getPotentiallyReachable(*From, *To);
+  bool isKnownReachable(Attributor &A, const Instruction &From,
+                        const Instruction &To) const {
+    return A.getInfoCache().getPotentiallyReachable(From, To);
   }
 
   /// Create an abstract attribute view for the position \p IRP.
