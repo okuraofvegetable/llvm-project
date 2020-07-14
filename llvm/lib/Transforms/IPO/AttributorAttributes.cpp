@@ -1052,9 +1052,10 @@ ChangeStatus AAReturnedValuesImpl::updateImpl(Attributor &A) {
   // map, NewRVsMap.
   decltype(ReturnedValues) NewRVsMap;
 
-  auto HandleReturnValue = [&](Value *RV, SmallSetVector<ReturnInst *, 4> &RIs) {
-    LLVM_DEBUG(dbgs() << "[AAReturnedValues] Returned value: " << *RV
-                      << " by #" << RIs.size() << " RIs\n");
+  auto HandleReturnValue = [&](Value *RV,
+                               SmallSetVector<ReturnInst *, 4> &RIs) {
+    LLVM_DEBUG(dbgs() << "[AAReturnedValues] Returned value: " << *RV << " by #"
+                      << RIs.size() << " RIs\n");
     CallBase *CB = dyn_cast<CallBase>(RV);
     if (!CB || UnresolvedCalls.count(CB))
       return;
@@ -3301,7 +3302,6 @@ struct AADereferenceableImpl : AADereferenceable {
     const IRPosition &IRP = this->getIRPosition();
     NonNullAA = &A.getAAFor<AANonNull>(*this, IRP,
                                        /* TrackDependence */ false);
-
     bool CanBeNull;
     takeKnownDerefBytesMaximum(
         IRP.getAssociatedValue().getPointerDereferenceableBytes(
@@ -3402,8 +3402,8 @@ struct AADereferenceableFloating : AADereferenceableImpl {
   ChangeStatus updateImpl(Attributor &A) override {
     const DataLayout &DL = A.getDataLayout();
 
-    auto VisitValueCB = [&](const Value &V, const Instruction *, DerefState &T,
-                            bool Stripped) -> bool {
+    auto VisitValueCB = [&](const Value &V, const Instruction *CtxI,
+                            DerefState &T, bool Stripped) -> bool {
       unsigned IdxWidth =
           DL.getIndexSizeInBits(V.getType()->getPointerAddressSpace());
       APInt Offset(IdxWidth, 0);
@@ -3424,7 +3424,6 @@ struct AADereferenceableFloating : AADereferenceableImpl {
         DerefBytes = DS.DerefBytesState.getAssumed();
         T.GlobalState &= DS.GlobalState;
       }
-
 
       // For now we do not try to "increase" dereferenceability due to negative
       // indices as we first have to come up with code to deal with loops and
