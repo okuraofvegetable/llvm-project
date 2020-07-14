@@ -578,9 +578,58 @@ static void followUsesInContext(AAType &AA, Attributor &A,
   }
 }
 
-/// Use the must-be-executed-context around \p I to add information into \p S.
-/// The AAType class is required to have `followUseInMBEC` method with the
-/// following signature and behaviour:
+template <class AAType, typename StateType = typename AAType::StateType>
+static void
+updateBrInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
+             const Instruction *CtxI, const BranchInst *Br,
+             SetVector<const Use *> &Uses, StateType &State,
+             DenseMap<const Instruction *, StateType> &StateMap,
+             SetVector<const Instruction *> &AddInsts, ChangeStatus &CS) {
+  State.indicateOptimisticFixpoint();
+  for (const BasicBlock *BB : Br->successors()) {
+    const Instruction *DependInst = &BB->front();
+    auto Iter = StateMap.find(DependInst);
+    if (Iter == StateMap.end()) {
+      AddInsts.insert(DependInst);
+      State &= StateType();
+      CS = ChangeStatus::CHANGED;
+    } else {
+      State &= Iter->second;
+    }
+  }
+  followUsesInContext(AA, A, Explorer, CtxI, Uses, State);
+}
+
+template <class AAType, typename StateType = typename AAType::StateType>
+static void
+updateInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
+           const Instruction *CtxI, SetVector<const Use *> &Uses,
+           StateType &State, DenseMap<const Instruction *, StateType> &StateMap,
+           SetVector<const Instruction *> &AddInsts, ChangeStatus &CS) {
+  State = StateType();
+  followUsesInContext<AAType>(AA, A, Explorer, CtxI, Uses, State);
+  SmallVector<const Instruction *, 4> BrInsts;
+  auto Pred = [&](const Instruction *I) {
+    if (const BranchInst *Br = dyn_cast<BranchInst>(I))
+      if (Br->isConditional())
+        BrInsts.push_back(I);
+    return true;
+  };
+  Explorer.checkForAllContext(CtxI, Pred);
+  for (const Instruction *I : BrInsts) {
+    auto Iter = StateMap.find(I);
+    if (Iter == StateMap.end()) {
+      AddInsts.insert(I);
+      CS = ChangeStatus::CHANGED;
+    } else {
+      State += Iter->second;
+    }
+  }
+}
+
+/// Use the must-be-executed-context around \p I to add information into \p
+/// S. The AAType class is required to have `followUseInMBEC` method with
+/// the following signature and behaviour:
 ///
 /// bool followUseInMBEC(Attributor &A, const Use *U, const Instruction *I)
 /// U - Underlying use.
@@ -590,6 +639,7 @@ static void followUsesInContext(AAType &AA, Attributor &A,
 template <class AAType, typename StateType = typename AAType::StateType>
 static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
                              Instruction &CtxI) {
+  // Map from context instruction to state
   DenseMap<const Instruction *, StateType> StateMap;
 
   // Container for (transitive) uses of the associated value.
@@ -609,52 +659,23 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
 
   // Update States
   ChangeStatus CS;
+  // TODO: set upper bound of number of iteration as command line option
   unsigned Iteration = 0;
   do {
     Iteration += 1;
     CS = ChangeStatus::UNCHANGED;
     SetVector<const Instruction *> AddInsts;
     for (auto &InstStatePair : StateMap) {
-      const Instruction *I = InstStatePair.first;
+      const Instruction *CtxI = InstStatePair.first;
       StateType &State = InstStatePair.second;
       StateType BeforeState = State;
-      const BranchInst *Br = dyn_cast<const BranchInst>(I);
+      const BranchInst *Br = dyn_cast<const BranchInst>(CtxI);
       if (Br && Br->isConditional()) {
-        State.indicateOptimisticFixpoint();
-        for (const BasicBlock *BB : Br->successors()) {
-          const Instruction *DependInst = &BB->front();
-          auto Iter = StateMap.find(DependInst);
-          if (Iter == StateMap.end()) {
-            AddInsts.insert(DependInst);
-            State &= StateType();
-            CS = ChangeStatus::CHANGED;
-          } else {
-            State &= Iter->second;
-          }
-        }
-        followUsesInContext(AA, A, Explorer, I, Uses, State);
+        updateBrInst(AA, A, Explorer, CtxI, Br, Uses, State, StateMap, AddInsts,
+                     CS);
       } else {
-        State = StateType();
-        followUsesInContext<AAType>(AA, A, Explorer, I, Uses, State);
-        SmallVector<const Instruction *, 4> BrInsts;
-        auto Pred = [&](const Instruction *I) {
-          if (const BranchInst *Br = dyn_cast<BranchInst>(I))
-            if (Br->isConditional())
-              BrInsts.push_back(I);
-          return true;
-        };
-        Explorer.checkForAllContext(I, Pred);
-        for (const Instruction *Br : BrInsts) {
-          auto Iter = StateMap.find(Br);
-          if (Iter == StateMap.end()) {
-            AddInsts.insert(Br);
-            CS = ChangeStatus::CHANGED;
-          } else {
-            State += Iter->second;
-          }
-        }
+        updateInst(AA, A, Explorer, CtxI, Uses, State, StateMap, AddInsts, CS);
       }
-
       if (State != BeforeState) {
         CS = ChangeStatus::CHANGED;
       }
