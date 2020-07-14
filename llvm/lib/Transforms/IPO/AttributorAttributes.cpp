@@ -578,13 +578,14 @@ static void followUsesInContext(AAType &AA, Attributor &A,
   }
 }
 
+/// Helper function for update in followUsesInMBEC
 template <class AAType, typename StateType = typename AAType::StateType>
 static void
 updateBrInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
              const Instruction *CtxI, const BranchInst *Br,
              SetVector<const Use *> &Uses, StateType &State,
              DenseMap<const Instruction *, StateType> &StateMap,
-             SetVector<const Instruction *> &AddInsts, ChangeStatus &CS) {
+             SetVector<const Instruction *> &AddInsts) {
   State.indicateOptimisticFixpoint();
   for (const BasicBlock *BB : Br->successors()) {
     const Instruction *DependInst = &BB->front();
@@ -592,7 +593,6 @@ updateBrInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
     if (Iter == StateMap.end()) {
       AddInsts.insert(DependInst);
       State &= StateType();
-      CS = ChangeStatus::CHANGED;
     } else {
       State &= Iter->second;
     }
@@ -600,12 +600,13 @@ updateBrInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
   followUsesInContext(AA, A, Explorer, CtxI, Uses, State);
 }
 
+/// Helper function for update in followUsesInMBEC
 template <class AAType, typename StateType = typename AAType::StateType>
 static void
 updateInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
            const Instruction *CtxI, SetVector<const Use *> &Uses,
            StateType &State, DenseMap<const Instruction *, StateType> &StateMap,
-           SetVector<const Instruction *> &AddInsts, ChangeStatus &CS) {
+           SetVector<const Instruction *> &AddInsts) {
   State = StateType();
   followUsesInContext<AAType>(AA, A, Explorer, CtxI, Uses, State);
   SmallVector<const Instruction *, 4> BrInsts;
@@ -620,7 +621,6 @@ updateInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
     auto Iter = StateMap.find(I);
     if (Iter == StateMap.end()) {
       AddInsts.insert(I);
-      CS = ChangeStatus::CHANGED;
     } else {
       State += Iter->second;
     }
@@ -645,6 +645,7 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
   // Container for (transitive) uses of the associated value.
   SetVector<const Use *> Uses;
 
+  // Register context instructions
   StateMap.insert(std::make_pair(&CtxI, StateType()));
 
   for (const Use &U : AA.getIRPosition().getAssociatedValue().uses()) {
@@ -657,7 +658,6 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
   MustBeExecutedContextExplorer &Explorer =
       A.getInfoCache().getMustBeExecutedContextExplorer();
 
-  // Update States
   ChangeStatus CS;
   // TODO: set upper bound of number of iteration as command line option
   unsigned Iteration = 0;
@@ -666,20 +666,21 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
     CS = ChangeStatus::UNCHANGED;
     SetVector<const Instruction *> AddInsts;
     for (auto &InstStatePair : StateMap) {
-      const Instruction *CtxI = InstStatePair.first;
+      const Instruction *I = InstStatePair.first;
       StateType &State = InstStatePair.second;
       StateType BeforeState = State;
-      const BranchInst *Br = dyn_cast<const BranchInst>(CtxI);
+      const BranchInst *Br = dyn_cast<const BranchInst>(I);
       if (Br && Br->isConditional()) {
-        updateBrInst(AA, A, Explorer, CtxI, Br, Uses, State, StateMap, AddInsts,
-                     CS);
+        updateBrInst(AA, A, Explorer, I, Br, Uses, State, StateMap, AddInsts);
       } else {
-        updateInst(AA, A, Explorer, CtxI, Uses, State, StateMap, AddInsts, CS);
+        updateInst(AA, A, Explorer, I, Uses, State, StateMap, AddInsts);
       }
       if (State != BeforeState) {
         CS = ChangeStatus::CHANGED;
       }
     }
+    if (AddInsts.size() > 0)
+      CS = ChangeStatus::CHANGED;
     for (const Instruction *I : AddInsts)
       StateMap.insert(std::make_pair(I, StateType()));
   } while (CS == ChangeStatus::CHANGED);
