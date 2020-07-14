@@ -2021,9 +2021,6 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, const IntegerRangeState &S) {
 raw_ostream &llvm::operator<<(raw_ostream &OS, const AbstractState &S) {
   return OS << (!S.isValidState() ? "top" : (S.isAtFixpoint() ? "fix" : ""));
 }
-raw_ostream &llvm::operator<<(raw_ostream &OS, const DerefState &S) {
-  return OS << S.DerefBytesState;
-}
 
 raw_ostream &llvm::operator<<(raw_ostream &OS, const AbstractAttribute &AA) {
   AA.print(OS);

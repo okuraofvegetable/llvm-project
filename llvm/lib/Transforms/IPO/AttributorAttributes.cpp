@@ -590,8 +590,6 @@ static void followUsesInContext(AAType &AA, Attributor &A,
 template <class AAType, typename StateType = typename AAType::StateType>
 static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
                              Instruction &CtxI) {
-  LLVM_DEBUG(dbgs() << "[followUsesInMBEC] begin\n AA " << AA << "\nCtxI "
-                    << CtxI << "\n");
   DenseMap<const Instruction *, StateType> StateMap;
 
   // Container for (transitive) uses of the associated value.
@@ -616,25 +614,21 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
     Iteration += 1;
     CS = ChangeStatus::UNCHANGED;
     SetVector<const Instruction *> AddInsts;
-    LLVM_DEBUG(dbgs() << "Iteration #" << Iteration << "\n");
     for (auto &InstStatePair : StateMap) {
       const Instruction *I = InstStatePair.first;
       StateType &State = InstStatePair.second;
-      LLVM_DEBUG(dbgs() << "Inst : " << *I << "\n");
       StateType BeforeState = State;
       const BranchInst *Br = dyn_cast<const BranchInst>(I);
       if (Br && Br->isConditional()) {
         State.indicateOptimisticFixpoint();
         for (const BasicBlock *BB : Br->successors()) {
           const Instruction *DependInst = &BB->front();
-          LLVM_DEBUG(dbgs() << "DependInst : " << *DependInst << "\n");
           auto Iter = StateMap.find(DependInst);
           if (Iter == StateMap.end()) {
             AddInsts.insert(DependInst);
             State &= StateType();
             CS = ChangeStatus::CHANGED;
           } else {
-            LLVM_DEBUG(dbgs() << "DependState : " << Iter->second << "\n");
             State &= Iter->second;
           }
         }
@@ -651,8 +645,6 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
         };
         Explorer.checkForAllContext(I, Pred);
         for (const Instruction *Br : BrInsts) {
-          LLVM_DEBUG(dbgs() << "BrInst : " << *Br << "is must be executed ("
-                            << *I << ")\n");
           auto Iter = StateMap.find(Br);
           if (Iter == StateMap.end()) {
             AddInsts.insert(Br);
@@ -660,13 +652,8 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
           } else {
             State += Iter->second;
           }
-          LLVM_DEBUG(dbgs()
-                     << "State : " << BeforeState << " -> " << State << "\n");
         }
       }
-
-      LLVM_DEBUG(dbgs() << "State : " << BeforeState << " -> " << State
-                        << "\n");
 
       if (State != BeforeState) {
         CS = ChangeStatus::CHANGED;
@@ -674,11 +661,9 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
     }
     for (const Instruction *I : AddInsts)
       StateMap.insert(std::make_pair(I, StateType()));
-    LLVM_DEBUG(dbgs() << "Iteration end\n");
   } while (CS == ChangeStatus::CHANGED);
 
   S += StateMap.lookup(&CtxI);
-  LLVM_DEBUG(dbgs() << "[followUsesInMBEC] end " << S << "\n");
 }
 
 /// -----------------------NoUnwind Function Attribute--------------------------
@@ -3415,7 +3400,6 @@ struct AADereferenceableFloating : AADereferenceableImpl {
 
     auto VisitValueCB = [&](const Value &V, const Instruction *CtxI,
                             DerefState &T, bool Stripped) -> bool {
-      LLVM_DEBUG(dbgs() << "[Deref][VisitCB] " << V << " : " << CtxI << "\n");
       unsigned IdxWidth =
           DL.getIndexSizeInBits(V.getType()->getPointerAddressSpace());
       APInt Offset(IdxWidth, 0);

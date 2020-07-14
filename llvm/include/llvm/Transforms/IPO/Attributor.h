@@ -2728,7 +2728,6 @@ struct DerefState : AbstractState {
 protected:
   const AANonNull *NonNullAA = nullptr;
 };
-raw_ostream &operator<<(raw_ostream &OS, const DerefState &S);
 
 /// An abstract interface for all dereferenceable attribute.
 struct AADereferenceable
