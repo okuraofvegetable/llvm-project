@@ -590,84 +590,95 @@ static void followUsesInContext(AAType &AA, Attributor &A,
 template <class AAType, typename StateType = typename AAType::StateType>
 static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
                              Instruction &CtxI) {
+  LLVM_DEBUG(dbgs() << "[followUsesInMBEC] begin\n AA " << AA << "\nCtxI "
+                    << CtxI << "\n");
+  DenseMap<const Instruction *, StateType> StateMap;
 
   // Container for (transitive) uses of the associated value.
   SetVector<const Use *> Uses;
-  for (const Use &U : AA.getIRPosition().getAssociatedValue().uses())
+
+  StateMap.insert(std::make_pair(&CtxI, StateType()));
+
+  for (const Use &U : AA.getIRPosition().getAssociatedValue().uses()) {
     Uses.insert(&U);
+    if (const Instruction *UserI = dyn_cast<Instruction>(U.getUser())) {
+      StateMap.insert(std::make_pair(UserI, StateType()));
+    }
+  }
 
   MustBeExecutedContextExplorer &Explorer =
       A.getInfoCache().getMustBeExecutedContextExplorer();
 
-  followUsesInContext<AAType>(AA, A, Explorer, &CtxI, Uses, S);
+  // Update States
+  ChangeStatus CS;
+  unsigned Iteration = 0;
+  do {
+    Iteration += 1;
+    CS = ChangeStatus::UNCHANGED;
+    SetVector<const Instruction *> AddInsts;
+    LLVM_DEBUG(dbgs() << "Iteration #" << Iteration << "\n");
+    for (auto &InstStatePair : StateMap) {
+      const Instruction *I = InstStatePair.first;
+      StateType &State = InstStatePair.second;
+      LLVM_DEBUG(dbgs() << "Inst : " << *I << "\n");
+      StateType BeforeState = State;
+      const BranchInst *Br = dyn_cast<const BranchInst>(I);
+      if (Br && Br->isConditional()) {
+        State.indicateOptimisticFixpoint();
+        for (const BasicBlock *BB : Br->successors()) {
+          const Instruction *DependInst = &BB->front();
+          LLVM_DEBUG(dbgs() << "DependInst : " << *DependInst << "\n");
+          auto Iter = StateMap.find(DependInst);
+          if (Iter == StateMap.end()) {
+            AddInsts.insert(DependInst);
+            State &= StateType();
+            CS = ChangeStatus::CHANGED;
+          } else {
+            LLVM_DEBUG(dbgs() << "DependState : " << Iter->second << "\n");
+            State &= Iter->second;
+          }
+        }
+        followUsesInContext(AA, A, Explorer, I, Uses, State);
+      } else {
+        State = StateType();
+        followUsesInContext<AAType>(AA, A, Explorer, I, Uses, State);
+        SmallVector<const Instruction *, 4> BrInsts;
+        auto Pred = [&](const Instruction *I) {
+          if (const BranchInst *Br = dyn_cast<BranchInst>(I))
+            if (Br->isConditional())
+              BrInsts.push_back(I);
+          return true;
+        };
+        Explorer.checkForAllContext(I, Pred);
+        for (const Instruction *Br : BrInsts) {
+          LLVM_DEBUG(dbgs() << "BrInst : " << *Br << "is must be executed ("
+                            << *I << ")\n");
+          auto Iter = StateMap.find(Br);
+          if (Iter == StateMap.end()) {
+            AddInsts.insert(Br);
+            CS = ChangeStatus::CHANGED;
+          } else {
+            State += Iter->second;
+          }
+          LLVM_DEBUG(dbgs()
+                     << "State : " << BeforeState << " -> " << State << "\n");
+        }
+      }
 
-  if (S.isAtFixpoint())
-    return;
+      LLVM_DEBUG(dbgs() << "State : " << BeforeState << " -> " << State
+                        << "\n");
 
-  SmallVector<const BranchInst *, 4> BrInsts;
-  auto Pred = [&](const Instruction *I) {
-    if (const BranchInst *Br = dyn_cast<BranchInst>(I))
-      if (Br->isConditional())
-        BrInsts.push_back(Br);
-    return true;
-  };
-
-  // Here, accumulate conditional branch instructions in the context. We
-  // explore the child paths and collect the known states. The disjunction of
-  // those states can be merged to its own state. Let ParentState_i be a state
-  // to indicate the known information for an i-th branch instruction in the
-  // context. ChildStates are created for its successors respectively.
-  //
-  // ParentS_1 = ChildS_{1, 1} /\ ChildS_{1, 2} /\ ... /\ ChildS_{1, n_1}
-  // ParentS_2 = ChildS_{2, 1} /\ ChildS_{2, 2} /\ ... /\ ChildS_{2, n_2}
-  //      ...
-  // ParentS_m = ChildS_{m, 1} /\ ChildS_{m, 2} /\ ... /\ ChildS_{m, n_m}
-  //
-  // Known State |= ParentS_1 \/ ParentS_2 \/... \/ ParentS_m
-  //
-  // FIXME: Currently, recursive branches are not handled. For example, we
-  // can't deduce that ptr must be dereferenced in below function.
-  //
-  // void f(int a, int c, int *ptr) {
-  //    if(a)
-  //      if (b) {
-  //        *ptr = 0;
-  //      } else {
-  //        *ptr = 1;
-  //      }
-  //    else {
-  //      if (b) {
-  //        *ptr = 0;
-  //      } else {
-  //        *ptr = 1;
-  //      }
-  //    }
-  // }
-
-  Explorer.checkForAllContext(&CtxI, Pred);
-  for (const BranchInst *Br : BrInsts) {
-    StateType ParentState;
-
-    // The known state of the parent state is a conjunction of children's
-    // known states so it is initialized with a best state.
-    ParentState.indicateOptimisticFixpoint();
-
-    for (const BasicBlock *BB : Br->successors()) {
-      StateType ChildState;
-
-      size_t BeforeSize = Uses.size();
-      followUsesInContext(AA, A, Explorer, &BB->front(), Uses, ChildState);
-
-      // Erase uses which only appear in the child.
-      for (auto It = Uses.begin() + BeforeSize; It != Uses.end();)
-        It = Uses.erase(It);
-
-      ParentState &= ChildState;
+      if (State != BeforeState) {
+        CS = ChangeStatus::CHANGED;
+      }
     }
+    for (const Instruction *I : AddInsts)
+      StateMap.insert(std::make_pair(I, StateType()));
+    LLVM_DEBUG(dbgs() << "Iteration end\n");
+  } while (CS == ChangeStatus::CHANGED);
 
-    // Use only known state.
-    S += ParentState;
-  }
+  S += StateMap.lookup(&CtxI);
+  LLVM_DEBUG(dbgs() << "[followUsesInMBEC] end " << S << "\n");
 }
 
 /// -----------------------NoUnwind Function Attribute--------------------------
@@ -3404,6 +3415,7 @@ struct AADereferenceableFloating : AADereferenceableImpl {
 
     auto VisitValueCB = [&](const Value &V, const Instruction *CtxI,
                             DerefState &T, bool Stripped) -> bool {
+      LLVM_DEBUG(dbgs() << "[Deref][VisitCB] " << V << " : " << CtxI << "\n");
       unsigned IdxWidth =
           DL.getIndexSizeInBits(V.getType()->getPointerAddressSpace());
       APInt Offset(IdxWidth, 0);
