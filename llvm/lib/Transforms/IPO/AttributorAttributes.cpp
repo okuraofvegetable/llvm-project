@@ -640,7 +640,7 @@ static void updateInst(AAType &AA, Attributor &A,
   followUsesInContext(AA, A, Explorer, CtxI, Uses, State);
 }
 
-/// Use the must-be-executed-context around \p I to add information into \p
+/// Use the must-be-executed-context around \p I to clamp known states into \p
 /// S. The AAType class is required to have `followUseInMBEC` method with
 /// the following signature and behaviour:
 ///
@@ -649,6 +649,20 @@ static void updateInst(AAType &AA, Attributor &A,
 /// I - The user of the \p U.
 /// Returns true if the value should be tracked transitively.
 ///
+/// If instructions Q_1,...Q_N must be executed in context of instruction P,
+/// the known state at P can be improved by the disjunction of known
+/// states at Q_1,...,Q_N.
+///
+/// To propagate known states more aggressively, we use the fact that
+/// a known state at a branch instruction can be improved by the conjunction of
+/// known states at entry points of its successors.
+///
+/// We propagate known states repeatedly with above two logics until no change
+/// happens. To do that, we keep a mapping from Instruction to state in
+/// \p StateMap. The maximum limit of iteration is given as command line option
+/// \p MaxIterationFollowUse.
+///
+/// TODO: initialize states optimistically
 template <class AAType, typename StateType = typename AAType::StateType>
 static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
                              Instruction &CtxI) {
@@ -664,22 +678,14 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
   for (const Use &U : AA.getIRPosition().getAssociatedValue().uses())
     Uses.insert(&U);
 
-  for (const Use &U : AA.getIRPosition().getAssociatedValue().uses()) {
-    if (const Instruction *UserI = dyn_cast<Instruction>(U.getUser())) {
-      StateType State;
-      followUsesInContext(AA, A, Explorer, UserI, Uses, State);
-      StateMap.insert(std::make_pair(UserI, State));
-    }
-  }
-
-  if (!StateMap.count(&CtxI))
-    StateMap.insert(std::make_pair(&CtxI, StateType()));
+  StateMap.insert(std::make_pair(&CtxI, StateType()));
 
   ChangeStatus CS;
   unsigned Iteration = 0;
   do {
     Iteration += 1;
     CS = ChangeStatus::UNCHANGED;
+    // Set for instructions to be added for the next iteration
     SetVector<const Instruction *> AddInsts;
     for (auto StateMapIt = StateMap.begin(); StateMapIt != StateMap.end();
          StateMapIt++) {
@@ -692,9 +698,8 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
         updateBrInst(AA, A, Explorer, I, Br, Uses, State, StateMap, AddInsts);
       else
         updateInst(AA, A, Explorer, I, Uses, State, StateMap, AddInsts);
-      if (State != BeforeState) {
+      if (State != BeforeState)
         CS = ChangeStatus::CHANGED;
-      }
     }
     if (AddInsts.size() > 0)
       CS = ChangeStatus::CHANGED;
