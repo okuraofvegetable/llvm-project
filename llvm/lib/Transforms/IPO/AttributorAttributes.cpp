@@ -42,6 +42,9 @@ static cl::opt<bool> ManifestInternal(
 static cl::opt<int> MaxHeapToStackSize("max-heap-to-stack-size", cl::init(128),
                                        cl::Hidden);
 
+static cl::opt<unsigned> MaxIterationFollowUse("max-iteration-follow-use",
+                                               cl::init(10), cl::Hidden);
+
 STATISTIC(NumAAs, "Number of abstract attributes created");
 
 // Some helper macros to deal with statistics tracking.
@@ -580,35 +583,54 @@ static void followUsesInContext(AAType &AA, Attributor &A,
 
 /// Helper function for update in followUsesInMBEC
 template <class AAType, typename StateType = typename AAType::StateType>
-static void
-updateBrInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
-             const Instruction *CtxI, const BranchInst *Br,
-             SetVector<const Use *> &Uses, StateType &State,
-             DenseMap<const Instruction *, StateType> &StateMap,
-             SetVector<const Instruction *> &AddInsts) {
-  State.indicateOptimisticFixpoint();
+static void updateBrInst(AAType &AA, Attributor &A,
+                         MustBeExecutedContextExplorer &Explorer,
+                         const Instruction *CtxI, const BranchInst *Br,
+                         SetVector<const Use *> &Uses, StateType &State,
+                         MapVector<const Instruction *, StateType> &StateMap,
+                         SetVector<const Instruction *> &AddInsts) {
+  StateType ConjunctionState;
+  ConjunctionState.indicateOptimisticFixpoint();
   for (const BasicBlock *BB : Br->successors()) {
     const Instruction *DependInst = &BB->front();
-    auto Iter = StateMap.find(DependInst);
-    if (Iter == StateMap.end()) {
+    typename MapVector<const Instruction *, StateType>::iterator StateMapIt =
+        StateMap.find(DependInst);
+    if (StateMapIt == StateMap.end()) {
       AddInsts.insert(DependInst);
-      State &= StateType();
+      ConjunctionState &= StateType();
     } else {
-      State &= Iter->second;
+      ConjunctionState &= StateMapIt->second;
     }
   }
-  followUsesInContext(AA, A, Explorer, CtxI, Uses, State);
+  State += ConjunctionState;
+  updateInst(AA, A, Explorer, CtxI, Uses, State, StateMap, AddInsts);
 }
 
 /// Helper function for update in followUsesInMBEC
 template <class AAType, typename StateType = typename AAType::StateType>
-static void
-updateInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
-           const Instruction *CtxI, SetVector<const Use *> &Uses,
-           StateType &State, DenseMap<const Instruction *, StateType> &StateMap,
-           SetVector<const Instruction *> &AddInsts) {
-  State = StateType();
-  followUsesInContext<AAType>(AA, A, Explorer, CtxI, Uses, State);
+static void updateRecursiveCall(
+    AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
+    const Instruction *CtxI, const CallBase *CB, SetVector<const Use *> &Uses,
+    StateType &State, MapVector<const Instruction *, StateType> &StateMap,
+    SetVector<const Instruction *> &AddInsts) {
+  const Instruction *DependInst = &(CB->getCaller()->getEntryBlock().front());
+  typename MapVector<const Instruction *, StateType>::iterator StateMapIt =
+      StateMap.find(DependInst);
+  if (StateMapIt == StateMap.end())
+    AddInsts.insert(DependInst);
+  else
+    State += StateMapIt->second;
+  updateInst(AA, A, Explorer, CtxI, Uses, State, StateMap, AddInsts);
+}
+
+/// Helper function for update in followUsesInMBEC
+template <class AAType, typename StateType = typename AAType::StateType>
+static void updateInst(AAType &AA, Attributor &A,
+                       MustBeExecutedContextExplorer &Explorer,
+                       const Instruction *CtxI, SetVector<const Use *> &Uses,
+                       StateType &State,
+                       MapVector<const Instruction *, StateType> &StateMap,
+                       SetVector<const Instruction *> &AddInsts) {
   SmallVector<const Instruction *, 4> BrInsts;
   auto Pred = [&](const Instruction *I) {
     if (const BranchInst *Br = dyn_cast<BranchInst>(I))
@@ -618,13 +640,18 @@ updateInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
   };
   Explorer.checkForAllContext(CtxI, Pred);
   for (const Instruction *I : BrInsts) {
-    auto Iter = StateMap.find(I);
-    if (Iter == StateMap.end()) {
+    typename MapVector<const Instruction *, StateType>::iterator StateMapIt =
+        StateMap.find(I);
+    if (StateMapIt == StateMap.end())
       AddInsts.insert(I);
-    } else {
-      State += Iter->second;
-    }
+    else
+      State += StateMapIt->second;
   }
+
+  size_t BeforeSize = Uses.size();
+  followUsesInContext(AA, A, Explorer, CtxI, Uses, State);
+  for (auto It = Uses.begin() + BeforeSize; It != Uses.end();)
+    It = Uses.erase(It);
 }
 
 /// Use the must-be-executed-context around \p I to add information into \p
@@ -639,39 +666,55 @@ updateInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
 template <class AAType, typename StateType = typename AAType::StateType>
 static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
                              Instruction &CtxI) {
+  MustBeExecutedContextExplorer &Explorer =
+      A.getInfoCache().getMustBeExecutedContextExplorer();
+
   // Map from context instruction to state
-  DenseMap<const Instruction *, StateType> StateMap;
+  MapVector<const Instruction *, StateType> StateMap;
 
   // Container for (transitive) uses of the associated value.
   SetVector<const Use *> Uses;
 
-  // Register context instructions
-  StateMap.insert(std::make_pair(&CtxI, StateType()));
+  for (const Use &U : AA.getIRPosition().getAssociatedValue().uses())
+    Uses.insert(&U);
+  followUsesInContext(AA, A, Explorer, &CtxI, Uses, S);
 
   for (const Use &U : AA.getIRPosition().getAssociatedValue().uses()) {
-    Uses.insert(&U);
     if (const Instruction *UserI = dyn_cast<Instruction>(U.getUser())) {
-      StateMap.insert(std::make_pair(UserI, StateType()));
+      StateType State;
+      size_t BeforeSize = Uses.size();
+      followUsesInContext(AA, A, Explorer, UserI, Uses, State);
+      for (auto It = Uses.begin() + BeforeSize; It != Uses.end();)
+        It = Uses.erase(It);
+
+      StateMap.insert(std::make_pair(UserI, State));
     }
   }
 
-  MustBeExecutedContextExplorer &Explorer =
-      A.getInfoCache().getMustBeExecutedContextExplorer();
+  if (!StateMap.count(&CtxI))
+    StateMap.insert(std::make_pair(&CtxI, StateType()));
 
   ChangeStatus CS;
-  // TODO: set upper bound of number of iteration as command line option
   unsigned Iteration = 0;
   do {
     Iteration += 1;
     CS = ChangeStatus::UNCHANGED;
     SetVector<const Instruction *> AddInsts;
-    for (auto &InstStatePair : StateMap) {
-      const Instruction *I = InstStatePair.first;
-      StateType &State = InstStatePair.second;
+    for (auto StateMapIt = StateMap.begin(); StateMapIt != StateMap.end();
+         StateMapIt++) {
+      const Instruction *I = StateMapIt->first;
+      StateType &State = StateMapIt->second;
+      if (State.isAtFixpoint())
+        continue;
       StateType BeforeState = State;
-      const BranchInst *Br = dyn_cast<const BranchInst>(I);
-      if (Br && Br->isConditional()) {
+      if (const BranchInst *Br = dyn_cast<const BranchInst>(I)) {
         updateBrInst(AA, A, Explorer, I, Br, Uses, State, StateMap, AddInsts);
+      } else if (const CallBase *CB = dyn_cast<const CallBase>(I)) {
+        if (CB->getCalledFunction() == CB->getCaller())
+          updateRecursiveCall(AA, A, Explorer, I, CB, Uses, State, StateMap,
+                              AddInsts);
+        else
+          updateInst(AA, A, Explorer, I, Uses, State, StateMap, AddInsts);
       } else {
         updateInst(AA, A, Explorer, I, Uses, State, StateMap, AddInsts);
       }
@@ -683,9 +726,10 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
       CS = ChangeStatus::CHANGED;
     for (const Instruction *I : AddInsts)
       StateMap.insert(std::make_pair(I, StateType()));
-  } while (CS == ChangeStatus::CHANGED);
+  } while (CS == ChangeStatus::CHANGED && Iteration < MaxIterationFollowUse);
 
-  S += StateMap.lookup(&CtxI);
+  StateType T = StateMap.lookup(&CtxI);
+  S += T;
 }
 
 /// -----------------------NoUnwind Function Attribute--------------------------
