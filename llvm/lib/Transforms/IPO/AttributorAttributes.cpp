@@ -614,23 +614,6 @@ static void updateBrInst(AAType &AA, Attributor &A,
 
 /// Helper function for update in followUsesInMBEC
 template <class AAType, typename StateType = typename AAType::StateType>
-static void updateRecursiveCall(
-    AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
-    const Instruction *CtxI, const CallBase *CB, SetVector<const Use *> &Uses,
-    StateType &State, MapVector<const Instruction *, StateType> &StateMap,
-    SetVector<const Instruction *> &AddInsts) {
-  const Instruction *DependInst = &(CB->getCaller()->getEntryBlock().front());
-  typename MapVector<const Instruction *, StateType>::iterator StateMapIt =
-      StateMap.find(DependInst);
-  if (StateMapIt == StateMap.end())
-    AddInsts.insert(DependInst);
-  else
-    State += StateMapIt->second;
-  updateInst(AA, A, Explorer, CtxI, Uses, State, StateMap, AddInsts);
-}
-
-/// Helper function for update in followUsesInMBEC
-template <class AAType, typename StateType = typename AAType::StateType>
 static void updateInst(AAType &AA, Attributor &A,
                        MustBeExecutedContextExplorer &Explorer,
                        const Instruction *CtxI, SetVector<const Use *> &Uses,
@@ -705,17 +688,10 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
       if (State.isAtFixpoint())
         continue;
       StateType BeforeState = State;
-      if (const BranchInst *Br = dyn_cast<const BranchInst>(I)) {
+      if (const BranchInst *Br = dyn_cast<const BranchInst>(I))
         updateBrInst(AA, A, Explorer, I, Br, Uses, State, StateMap, AddInsts);
-      } else if (const CallBase *CB = dyn_cast<const CallBase>(I)) {
-        if (CB->getCalledFunction() == CB->getCaller())
-          updateRecursiveCall(AA, A, Explorer, I, CB, Uses, State, StateMap,
-                              AddInsts);
-        else
-          updateInst(AA, A, Explorer, I, Uses, State, StateMap, AddInsts);
-      } else {
+      else
         updateInst(AA, A, Explorer, I, Uses, State, StateMap, AddInsts);
-      }
       if (State != BeforeState) {
         CS = ChangeStatus::CHANGED;
       }
