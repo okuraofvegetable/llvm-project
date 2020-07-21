@@ -563,6 +563,9 @@ struct AACallSiteReturnedFromReturned : public BaseType {
 };
 
 /// Helper function to accumulate uses.
+/// Track Uses must be executed in context of \p CtxI
+/// Additional tracked Uses are finally removed and \p Uses is not changed by
+/// this function.
 template <class AAType, typename StateType = typename AAType::StateType>
 static void followUsesInContext(AAType &AA, Attributor &A,
                                 MustBeExecutedContextExplorer &Explorer,
@@ -570,6 +573,7 @@ static void followUsesInContext(AAType &AA, Attributor &A,
                                 SetVector<const Use *> &Uses,
                                 StateType &State) {
   auto EIt = Explorer.begin(CtxI), EEnd = Explorer.end(CtxI);
+  size_t BeforeSize = Uses.size();
   for (unsigned u = 0; u < Uses.size(); ++u) {
     const Use *U = Uses[u];
     if (const Instruction *UserI = dyn_cast<Instruction>(U->getUser())) {
@@ -579,6 +583,8 @@ static void followUsesInContext(AAType &AA, Attributor &A,
           Uses.insert(&Us);
     }
   }
+  for (auto It = Uses.begin() + BeforeSize; It != Uses.end();)
+    It = Uses.erase(It);
 }
 
 /// Helper function for update in followUsesInMBEC
@@ -648,10 +654,7 @@ static void updateInst(AAType &AA, Attributor &A,
       State += StateMapIt->second;
   }
 
-  size_t BeforeSize = Uses.size();
   followUsesInContext(AA, A, Explorer, CtxI, Uses, State);
-  for (auto It = Uses.begin() + BeforeSize; It != Uses.end();)
-    It = Uses.erase(It);
 }
 
 /// Use the must-be-executed-context around \p I to add information into \p
@@ -677,16 +680,11 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
 
   for (const Use &U : AA.getIRPosition().getAssociatedValue().uses())
     Uses.insert(&U);
-  followUsesInContext(AA, A, Explorer, &CtxI, Uses, S);
 
   for (const Use &U : AA.getIRPosition().getAssociatedValue().uses()) {
     if (const Instruction *UserI = dyn_cast<Instruction>(U.getUser())) {
       StateType State;
-      size_t BeforeSize = Uses.size();
       followUsesInContext(AA, A, Explorer, UserI, Uses, State);
-      for (auto It = Uses.begin() + BeforeSize; It != Uses.end();)
-        It = Uses.erase(It);
-
       StateMap.insert(std::make_pair(UserI, State));
     }
   }
