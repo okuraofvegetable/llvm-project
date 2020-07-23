@@ -687,14 +687,13 @@ static void followUsesInMBEC(AAType &AA, Attributor &A, StateType &S,
     CS = ChangeStatus::UNCHANGED;
     // Set for instructions to be added for the next iteration
     SetVector<const Instruction *> AddInsts;
-    for (auto StateMapIt = StateMap.begin(); StateMapIt != StateMap.end();
-         StateMapIt++) {
-      const Instruction *I = StateMapIt->first;
-      StateType &State = StateMapIt->second;
+    for (auto& StateMapIt : StateMap) {
+      const Instruction *I = StateMapIt.first;
+      StateType &State = StateMapIt.second;
       if (State.isAtFixpoint())
         continue;
       StateType BeforeState = State;
-      if (const BranchInst *Br = dyn_cast<const BranchInst>(I))
+      if (const BranchInst *Br = dyn_cast<BranchInst>(I))
         updateBrInst(AA, A, Explorer, I, Br, Uses, State, StateMap, AddInsts);
       else
         updateInst(AA, A, Explorer, I, Uses, State, StateMap, AddInsts);
