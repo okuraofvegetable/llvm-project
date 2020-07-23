@@ -717,7 +717,7 @@ define void @different_size2(i32* %arg) {
 define i32 @require_cfg_analysis(i32 %c, i32* %p) {
 ; IS__TUNIT_OPM: Function Attrs: argmemonly nofree nosync nounwind willreturn writeonly
 ; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@require_cfg_analysis
-; IS__TUNIT_OPM-SAME: (i32 [[C:%.*]], i32* nocapture nofree writeonly [[P:%.*]])
+; IS__TUNIT_OPM-SAME: (i32 [[C:%.*]], i32* nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[P:%.*]])
 ; IS__TUNIT_OPM-NEXT:    [[TOBOOL1:%.*]] = icmp eq i32 [[C]], 0
 ; IS__TUNIT_OPM-NEXT:    br i1 [[TOBOOL1]], label [[L1:%.*]], label [[L2:%.*]]
 ; IS__TUNIT_OPM:       l1:
@@ -770,7 +770,7 @@ define i32 @require_cfg_analysis(i32 %c, i32* %p) {
 ;
 ; IS__CGSCC_OPM: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC_OPM-LABEL: define {{[^@]+}}@require_cfg_analysis
-; IS__CGSCC_OPM-SAME: (i32 [[C:%.*]], i32* nocapture nofree writeonly [[P:%.*]])
+; IS__CGSCC_OPM-SAME: (i32 [[C:%.*]], i32* nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[P:%.*]])
 ; IS__CGSCC_OPM-NEXT:    [[TOBOOL1:%.*]] = icmp eq i32 [[C]], 0
 ; IS__CGSCC_OPM-NEXT:    br i1 [[TOBOOL1]], label [[L1:%.*]], label [[L2:%.*]]
 ; IS__CGSCC_OPM:       l1:

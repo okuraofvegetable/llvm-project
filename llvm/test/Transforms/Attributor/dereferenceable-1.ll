@@ -788,11 +788,10 @@ cont2:
 ;    }
 ;  }
 ;
-; FIXME: %ptr should be dereferenceable(4)
 define dso_local void @rec-branch-1(i32 %a, i32 %b, i32 %c, i32* %ptr) {
 ; IS__TUNIT____: Function Attrs: argmemonly nofree nosync nounwind willreturn writeonly
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@rec-branch-1
-; IS__TUNIT____-SAME: (i32 [[A:%.*]], i32 [[B:%.*]], i32 [[C:%.*]], i32* nocapture nofree writeonly [[PTR:%.*]])
+; IS__TUNIT____-SAME: (i32 [[A:%.*]], i32 [[B:%.*]], i32 [[C:%.*]], i32* nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[PTR:%.*]])
 ; IS__TUNIT____-NEXT:  entry:
 ; IS__TUNIT____-NEXT:    [[TOBOOL:%.*]] = icmp eq i32 [[A]], 0
 ; IS__TUNIT____-NEXT:    br i1 [[TOBOOL]], label [[IF_ELSE3:%.*]], label [[IF_THEN:%.*]]
@@ -819,7 +818,7 @@ define dso_local void @rec-branch-1(i32 %a, i32 %b, i32 %c, i32* %ptr) {
 ;
 ; IS__CGSCC____: Function Attrs: argmemonly nofree norecurse nosync nounwind willreturn writeonly
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@rec-branch-1
-; IS__CGSCC____-SAME: (i32 [[A:%.*]], i32 [[B:%.*]], i32 [[C:%.*]], i32* nocapture nofree writeonly [[PTR:%.*]])
+; IS__CGSCC____-SAME: (i32 [[A:%.*]], i32 [[B:%.*]], i32 [[C:%.*]], i32* nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[PTR:%.*]])
 ; IS__CGSCC____-NEXT:  entry:
 ; IS__CGSCC____-NEXT:    [[TOBOOL:%.*]] = icmp eq i32 [[A]], 0
 ; IS__CGSCC____-NEXT:    br i1 [[TOBOOL]], label [[IF_ELSE3:%.*]], label [[IF_THEN:%.*]]
