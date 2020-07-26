@@ -42,9 +42,6 @@ static cl::opt<bool> ManifestInternal(
 static cl::opt<int> MaxHeapToStackSize("max-heap-to-stack-size", cl::init(128),
                                        cl::Hidden);
 
-static cl::opt<unsigned> MaxIterationFollowUse("max-iteration-follow-use",
-                                               cl::init(10), cl::Hidden);
-
 STATISTIC(NumAAs, "Number of abstract attributes created");
 
 // Some helper macros to deal with statistics tracking.
@@ -646,11 +643,6 @@ exploreInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
 /// To propagate known states more aggressively, we use the fact that
 /// a known state at a branch instruction can be improved by the conjunction of
 /// known states at entry points of its successors.
-///
-/// We propagate known states repeatedly with above two logics until no change
-/// happens. To do that, we keep a mapping from Instruction to state in
-/// \p StateMap. The maximum limit of iteration is given as command line option
-/// \p MaxIterationFollowUse.
 ///
 /// TODO: initialize states optimistically
 template <class AAType, typename StateType = typename AAType::StateType>
