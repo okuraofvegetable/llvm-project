@@ -594,12 +594,13 @@ exploreInst(AAType &AA, Attributor &A, MustBeExecutedContextExplorer &Explorer,
   // Insert initial (pessimistic) state. If the key is already in the map, the
   // value corresponds to the key will not be updated.
   std::pair<typename DenseMap<const Instruction *, StateType>::iterator, bool>
-      IterBoolPair = StateMap.insert(std::make_pair(&CtxI, StateType()));
-  StateType &State = IterBoolPair.first->second;
+      StateMapInsertResult =
+          StateMap.insert(std::make_pair(&CtxI, StateType()));
+  StateType &State = StateMapInsertResult.first->second;
 
   // To avoid exploring the same instruction twice or more, return the value
   // immediately if the key is already in the map.
-  if (!IterBoolPair.second)
+  if (!StateMapInsertResult.second)
     return State;
 
   // Collect branch instructions which must be executed.
