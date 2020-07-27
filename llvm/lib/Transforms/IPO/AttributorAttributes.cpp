@@ -2330,34 +2330,6 @@ struct AAWillReturnCallSite final : AAWillReturnImpl {
   void trackStatistics() const override { STATS_DECLTRACK_CS_ATTR(willreturn); }
 };
 
-/// -------------------AAReachability Attribute--------------------------
-
-struct AAReachabilityImpl : AAReachability {
-  AAReachabilityImpl(const IRPosition &IRP, Attributor &A)
-      : AAReachability(IRP, A) {}
-
-  const std::string getAsStr() const override {
-    // TODO: Return the number of reachable queries.
-    return "reachable";
-  }
-
-  /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override { indicatePessimisticFixpoint(); }
-
-  /// See AbstractAttribute::updateImpl(...).
-  ChangeStatus updateImpl(Attributor &A) override {
-    return indicatePessimisticFixpoint();
-  }
-};
-
-struct AAReachabilityFunction final : public AAReachabilityImpl {
-  AAReachabilityFunction(const IRPosition &IRP, Attributor &A)
-      : AAReachabilityImpl(IRP, A) {}
-
-  /// See AbstractAttribute::trackStatistics()
-  void trackStatistics() const override { STATS_DECLTRACK_FN_ATTR(reachable); }
-};
-
 /// ------------------------ NoAlias Argument Attribute ------------------------
 
 struct AANoAliasImpl : AANoAlias {
@@ -3381,6 +3353,134 @@ struct AAIsDeadCallSite final : AAIsDeadFunction {
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {}
+};
+
+/// -------------------AAReachability Attribute--------------------------
+
+struct AAReachabilityImpl : AAReachability {
+  AAReachabilityImpl(const IRPosition &IRP, Attributor &A)
+      : AAReachability(IRP, A) {}
+
+  const std::string getAsStr() const override {
+    // TODO: Return the number of reachable queries.
+    return "reachable";
+  }
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override { indicatePessimisticFixpoint(); }
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    return indicatePessimisticFixpoint();
+  }
+};
+
+struct AAReachabilityFunction final : public AAReachabilityImpl {
+  AAReachabilityFunction(const IRPosition &IRP, Attributor &A)
+      : AAReachabilityImpl(IRP, A) {}
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {}
+
+  /// Helper function for updateImpl to add \p ToBB as successor of \p FromBB
+  ChangeStatus addEdge(const BasicBlock *FromBB, const BasicBlock *ToBB) {
+    auto InsertResult = SuccessorGraph.insert(
+        std::make_pair(FromBB, SetVector<const BasicBlock *>()));
+    auto SetInsertResult = InsertResult.first->second.insert(ToBB);
+    if (SetInsertResult == true) {
+      LLVM_DEBUG(dbgs() << "[AAReachability] Add edge : " << *FromBB << " -> "
+                        << *ToBB << "\n");
+    }
+    return SetInsertResult ? ChangeStatus::CHANGED : ChangeStatus::UNCHANGED;
+  }
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    Function &F = *getAnchorScope();
+    const auto &FnLiveness = A.getAAFor<AAIsDead>(*this, getIRPosition());
+    for (Function::const_iterator BBIt = F.begin(); BBIt != F.end(); BBIt++) {
+      if (A.isAssumedDead(BBIt->front(), this, &FnLiveness,
+                          /* CheckBBLivenessOnly */ true, DepClassTy::REQUIRED))
+        continue;
+      SmallVector<const Instruction *, 8> AliveSuccessors;
+      for (BasicBlock::const_iterator InstIt = BBIt->begin();
+           InstIt != BBIt->end(); InstIt++) {
+        const Instruction *I = &*InstIt;
+        if (A.isAssumedDead(*I, this, &FnLiveness))
+          continue;
+        switch (I->getOpcode()) {
+        default:
+          if (I->isTerminator()) {
+            for (const BasicBlock *SuccBB : successors(I->getParent()))
+              AliveSuccessors.push_back(&SuccBB->front());
+          }
+          break;
+        case Instruction::Call:
+          identifyAliveSuccessors(A, cast<CallInst>(*I), *this,
+                                  AliveSuccessors);
+          break;
+        case Instruction::Invoke:
+          identifyAliveSuccessors(A, cast<InvokeInst>(*I), *this,
+                                  AliveSuccessors);
+          break;
+        case Instruction::Br:
+          identifyAliveSuccessors(A, cast<BranchInst>(*I), *this,
+                                  AliveSuccessors);
+          break;
+        case Instruction::Switch:
+          identifyAliveSuccessors(A, cast<SwitchInst>(*I), *this,
+                                  AliveSuccessors);
+          break;
+        }
+      }
+      const BasicBlock *FromBB = &*BBIt;
+      for (const Instruction *I : AliveSuccessors) {
+        if (I->getParent() == FromBB)
+          continue;
+        Changed = Changed | addEdge(FromBB, I->getParent());
+      }
+    }
+    return Changed;
+  }
+
+  /// Return wheather \p To is reachable from \p From or not.
+  bool getAssumedReachable(const Instruction &From,
+                           const Instruction &To) const override {
+    const BasicBlock *FromBB = From.getParent();
+    const BasicBlock *ToBB = To.getParent();
+
+    if (FromBB == ToBB)
+      return true;
+
+    /// Basic blocks which are confirmed to be rechable from \p FromBB
+    SetVector<const BasicBlock *> ReachableBBs;
+
+    SmallVector<const BasicBlock *, 8> Worklist;
+    Worklist.push_back(FromBB);
+
+    while (!Worklist.empty()) {
+      const BasicBlock *BB = Worklist.pop_back_val();
+      LLVM_DEBUG(dbgs() << "[AAReachability] Explore BB : " << *BB << "\n");
+      if (BB == ToBB)
+        return true;
+      auto GraphIt = SuccessorGraph.find(BB);
+      if (GraphIt == SuccessorGraph.end())
+        continue;
+      for (const BasicBlock *NextBB : GraphIt->second) {
+        if (!ReachableBBs.count(NextBB)) {
+          Worklist.push_back(NextBB);
+          ReachableBBs.insert(NextBB);
+        }
+      }
+    }
+    return false;
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override { STATS_DECLTRACK_FN_ATTR(reachable); }
+
+  /// Map from a basic block to its reachable successor basic blocks
+  DenseMap<const BasicBlock *, SetVector<const BasicBlock *>> SuccessorGraph;
 };
 
 /// -------------------- Dereferenceable Argument Attribute --------------------

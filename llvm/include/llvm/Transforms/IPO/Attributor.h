@@ -2470,12 +2470,18 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
   using Base = StateWrapper<BooleanState, AbstractAttribute>;
   AAReachability(const IRPosition &IRP, Attributor &A) : Base(IRP) {}
 
+  /// Returns true if 'From' instruction is assumed to reach 'To' instruction.
+  virtual bool getAssumedReachable(const Instruction &From,
+                                   const Instruction &To) const = 0;
+
   /// Returns true if 'From' instruction is assumed to reach, 'To' instruction.
   /// Users should provide two positions they are interested in, and the class
   /// determines (and caches) reachability.
   bool isAssumedReachable(Attributor &A, const Instruction &From,
                           const Instruction &To) const {
-    return A.getInfoCache().getPotentiallyReachable(From, To);
+    if (!A.getInfoCache().getPotentiallyReachable(From, To))
+      return false;
+    return getAssumedReachable(From, To);
   }
 
   /// Returns true if 'From' instruction is known to reach, 'To' instruction.
