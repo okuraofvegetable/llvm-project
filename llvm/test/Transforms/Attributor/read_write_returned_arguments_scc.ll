@@ -166,7 +166,6 @@ define internal i32* @internal_ret1_rrw(i32* %r0, i32* %r1, i32* %w0) {
 ; IS__TUNIT____-NEXT:    [[CALL8:%.*]] = call i32* @internal_ret0_nw(i32* nofree nonnull align 4 dereferenceable(4) [[R1]], i32* nofree nonnull align 4 dereferenceable(4) [[W0]])
 ; IS__TUNIT____-NEXT:    br label [[RETURN]]
 ; IS__TUNIT____:       return:
-; IS__TUNIT____-NEXT:    [[RETVAL_0:%.*]] = phi i32* [ [[CALL8]], [[IF_END]] ], [ [[R1]], [[IF_THEN]] ]
 ; IS__TUNIT____-NEXT:    ret i32* undef
 ;
 ; IS__CGSCC____: Function Attrs: argmemonly nofree nosync nounwind
@@ -194,7 +193,6 @@ define internal i32* @internal_ret1_rrw(i32* %r0, i32* %r1, i32* %w0) {
 ; IS__CGSCC____-NEXT:    [[CALL8:%.*]] = call i32* @internal_ret0_nw(i32* nofree nonnull align 4 dereferenceable(4) [[R1]], i32* nofree nonnull align 4 dereferenceable(4) [[W0]])
 ; IS__CGSCC____-NEXT:    br label [[RETURN]]
 ; IS__CGSCC____:       return:
-; IS__CGSCC____-NEXT:    [[RETVAL_0:%.*]] = phi i32* [ [[CALL8]], [[IF_END]] ], [ [[R1]], [[IF_THEN]] ]
 ; IS__CGSCC____-NEXT:    ret i32* undef
 ;
 entry:

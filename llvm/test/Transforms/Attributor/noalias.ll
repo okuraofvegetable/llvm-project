@@ -817,7 +817,7 @@ define void @test17_caller(i32* noalias %p, i32 %c) {
 ; NOT_CGSCC_NPM-NEXT:    tail call void @make_alias(i32* nofree writeonly [[P]])
 ; NOT_CGSCC_NPM-NEXT:    br label [[L3:%.*]]
 ; NOT_CGSCC_NPM:       l2:
-; NOT_CGSCC_NPM-NEXT:    tail call void @only_store(i32* nocapture nofree writeonly align 4 [[P]])
+; NOT_CGSCC_NPM-NEXT:    tail call void @only_store(i32* noalias nocapture nofree writeonly align 4 [[P]])
 ; NOT_CGSCC_NPM-NEXT:    br label [[L3]]
 ; NOT_CGSCC_NPM:       l3:
 ; NOT_CGSCC_NPM-NEXT:    ret void
@@ -832,7 +832,7 @@ define void @test17_caller(i32* noalias %p, i32 %c) {
 ; IS__CGSCC____-NEXT:    tail call void @make_alias(i32* nofree writeonly [[P]])
 ; IS__CGSCC____-NEXT:    br label [[L3:%.*]]
 ; IS__CGSCC____:       l2:
-; IS__CGSCC____-NEXT:    tail call void @only_store(i32* nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
+; IS__CGSCC____-NEXT:    tail call void @only_store(i32* noalias nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
 ; IS__CGSCC____-NEXT:    br label [[L3]]
 ; IS__CGSCC____:       l3:
 ; IS__CGSCC____-NEXT:    ret void
@@ -888,7 +888,7 @@ define void @test18_caller(i32* noalias %p, i32 %c) {
 ; NOT_CGSCC_NPM-NEXT:    tail call void @make_alias(i32* nofree writeonly [[P]])
 ; NOT_CGSCC_NPM-NEXT:    unreachable
 ; NOT_CGSCC_NPM:       l2:
-; NOT_CGSCC_NPM-NEXT:    tail call void @only_store(i32* nocapture nofree writeonly align 4 [[P]])
+; NOT_CGSCC_NPM-NEXT:    tail call void @only_store(i32* noalias nocapture nofree writeonly align 4 [[P]])
 ; NOT_CGSCC_NPM-NEXT:    ret void
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind willreturn writeonly
@@ -901,7 +901,7 @@ define void @test18_caller(i32* noalias %p, i32 %c) {
 ; IS__CGSCC____-NEXT:    tail call void @make_alias(i32* nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
 ; IS__CGSCC____-NEXT:    unreachable
 ; IS__CGSCC____:       l2:
-; IS__CGSCC____-NEXT:    tail call void @only_store(i32* nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
+; IS__CGSCC____-NEXT:    tail call void @only_store(i32* noalias nocapture nofree nonnull writeonly align 4 dereferenceable(4) [[P]])
 ; IS__CGSCC____-NEXT:    ret void
 ;
 entry:

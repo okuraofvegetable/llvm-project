@@ -3386,10 +3386,11 @@ struct AAReachabilityFunction final : public AAReachabilityImpl {
     auto InsertResult = SuccessorGraph.insert(
         std::make_pair(FromBB, SetVector<const BasicBlock *>()));
     auto SetInsertResult = InsertResult.first->second.insert(ToBB);
-    if (SetInsertResult == true) {
-      LLVM_DEBUG(dbgs() << "[AAReachability] Add edge : " << *FromBB << " -> "
-                        << *ToBB << "\n");
-    }
+    LLVM_DEBUG({
+      if (SetInsertResult == true)
+        dbgs() << "[AAReachability] Add edge : " << *FromBB << " -> " << *ToBB
+               << "\n";
+    });
     return SetInsertResult ? ChangeStatus::CHANGED : ChangeStatus::UNCHANGED;
   }
 
