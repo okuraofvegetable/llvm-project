@@ -224,7 +224,7 @@ define internal i8* @f3(i8* readnone %0) local_unnamed_addr #0 {
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq i8* @a2, null
 ; CHECK-NEXT:    br i1 [[TMP1]], label [[TMP2:%.*]], label [[TMP4:%.*]]
 ; CHECK:       2:
-; CHECK-NEXT:    [[TMP3:%.*]] = tail call i8* @f1(i8* noalias nofree nonnull readnone align 16 dereferenceable(1) "no-capture-maybe-returned" @a2)
+; CHECK-NEXT:    [[TMP3:%.*]] = tail call i8* @f1(i8* noalias nofree noundef nonnull readnone align 16 dereferenceable(1) "no-capture-maybe-returned" @a2)
 ; CHECK-NEXT:    br label [[TMP4]]
 ; CHECK:       4:
 ; CHECK-NEXT:    [[TMP5:%.*]] = phi i8* [ [[TMP3]], [[TMP2]] ], [ @a1, [[TMP0:%.*]] ]
@@ -247,12 +247,12 @@ define internal i8* @f3(i8* readnone %0) local_unnamed_addr #0 {
 define align 4 i8* @test7() #0 {
 ; IS__TUNIT____: Function Attrs: nofree noinline nosync nounwind readnone uwtable
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test7()
-; IS__TUNIT____-NEXT:    [[C:%.*]] = tail call i8* @f1(i8* noalias nofree nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" @a1)
+; IS__TUNIT____-NEXT:    [[C:%.*]] = tail call i8* @f1(i8* noalias nofree noundef nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" @a1)
 ; IS__TUNIT____-NEXT:    ret i8* [[C]]
 ;
 ; IS__CGSCC____: Function Attrs: nofree noinline nosync nounwind readnone uwtable
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test7()
-; IS__CGSCC____-NEXT:    [[C:%.*]] = tail call nonnull align 8 dereferenceable(1) i8* @f1(i8* noalias nofree nonnull readnone align 8 dereferenceable(1) @a1)
+; IS__CGSCC____-NEXT:    [[C:%.*]] = tail call nonnull align 8 dereferenceable(1) i8* @f1(i8* noalias nofree noundef nonnull readnone align 8 dereferenceable(1) @a1)
 ; IS__CGSCC____-NEXT:    ret i8* [[C]]
 ;
   %c = tail call i8* @f1(i8* align 8 dereferenceable(1) @a1)
@@ -346,7 +346,7 @@ define internal i8* @f3b(i8* readnone %0) local_unnamed_addr #0 {
 ; CHECK-NEXT:    [[TMP1:%.*]] = icmp eq i8* @a2, null
 ; CHECK-NEXT:    br i1 [[TMP1]], label [[TMP2:%.*]], label [[TMP4:%.*]]
 ; CHECK:       2:
-; CHECK-NEXT:    [[TMP3:%.*]] = tail call i8* @f1b(i8* noalias nofree nonnull readnone align 16 dereferenceable(1) "no-capture-maybe-returned" @a2)
+; CHECK-NEXT:    [[TMP3:%.*]] = tail call i8* @f1b(i8* noalias nofree noundef nonnull readnone align 16 dereferenceable(1) "no-capture-maybe-returned" @a2)
 ; CHECK-NEXT:    br label [[TMP4]]
 ; CHECK:       4:
 ; CHECK-NEXT:    [[TMP5:%.*]] = phi i8* [ [[TMP3]], [[TMP2]] ], [ @a1, [[TMP0:%.*]] ]
@@ -368,13 +368,13 @@ define align 4 i32* @test7b(i32* align 32 %p) #0 {
 ; IS__TUNIT____: Function Attrs: nofree noinline nosync nounwind uwtable
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@test7b
 ; IS__TUNIT____-SAME: (i32* nofree readnone returned align 32 "no-capture-maybe-returned" [[P:%.*]])
-; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = tail call i8* @f1b(i8* noalias nofree nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" @a1)
+; IS__TUNIT____-NEXT:    [[TMP1:%.*]] = tail call i8* @f1b(i8* noalias nofree noundef nonnull readnone align 8 dereferenceable(1) "no-capture-maybe-returned" @a1)
 ; IS__TUNIT____-NEXT:    ret i32* [[P]]
 ;
 ; IS__CGSCC____: Function Attrs: nofree noinline nosync nounwind uwtable
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@test7b
 ; IS__CGSCC____-SAME: (i32* nofree readnone returned align 32 "no-capture-maybe-returned" [[P:%.*]])
-; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = tail call i8* @f1b(i8* noalias nofree nonnull readnone align 8 dereferenceable(1) @a1)
+; IS__CGSCC____-NEXT:    [[TMP1:%.*]] = tail call i8* @f1b(i8* noalias nofree noundef nonnull readnone align 8 dereferenceable(1) @a1)
 ; IS__CGSCC____-NEXT:    ret i32* [[P]]
 ;
   tail call i8* @f1b(i8* align 8 dereferenceable(1) @a1)

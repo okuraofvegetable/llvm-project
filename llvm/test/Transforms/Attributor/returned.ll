@@ -605,7 +605,7 @@ define i32* @calls_unknown_fn(i32* %r) #0 {
 ; CHECK: Function Attrs: noinline nounwind uwtable
 ; CHECK-LABEL: define {{[^@]+}}@calls_unknown_fn
 ; CHECK-SAME: (i32* nofree readnone returned "no-capture-maybe-returned" [[R:%.*]])
-; CHECK-NEXT:    tail call void @unknown_fn(i32* (i32*)* nonnull @calls_unknown_fn)
+; CHECK-NEXT:    tail call void @unknown_fn(i32* (i32*)* noundef nonnull @calls_unknown_fn)
 ; CHECK-NEXT:    ret i32* [[R]]
 ;
   tail call void @unknown_fn(i32* (i32*)* nonnull @calls_unknown_fn)
