@@ -7647,54 +7647,17 @@ struct AANoUndefImpl : AANoUndef {
   /// See followUsesInMBEC
   bool followUseInMBEC(Attributor &A, const Use *U, const Instruction *I,
                        AANoUndef::StateType &State) {
-    bool ShouldBeNoUndef = false;
-    bool TrackUse = false;
     const Value *UseV = U->get();
-    // If the value is used as the condition operand of a br instruction, it
-    // should not be undef.
-    if (const BranchInst *Br = dyn_cast<BranchInst>(I)) {
-      const Value *CondV = Br->getCondition();
-      if (CondV == UseV)
-        ShouldBeNoUndef = true;
-    }
-    // If the value is used as the divisor operand of a udiv, sdiv, urem, or
-    // srem instruction, it should not be undef.
-    if (const BinaryOperator *BinOp = dyn_cast<BinaryOperator>(I)) {
-      auto isDivisionLikeOpcode = [](Instruction::BinaryOps BinOpcode) -> bool {
-        switch (BinOpcode) {
-        default:
-          return false;
-        case Instruction::UDiv:
-        case Instruction::SDiv:
-        case Instruction::URem:
-        case Instruction::SRem:
-          return true;
-        }
-      };
-      Instruction::BinaryOps BinOpcode = BinOp->getOpcode();
-      if (isDivisionLikeOpcode(BinOpcode)) {
-        const Value *DivisorV = BinOp->getOperand(1);
-        if (DivisorV == UseV)
-          ShouldBeNoUndef = true;
-      }
-    }
-    // If the value is used as the pointer operand of a load, store instruction,
-    // it should not be undef.
-    if (const LoadInst *LI = dyn_cast<LoadInst>(I)) {
-      const Value *PtrV = LI->getPointerOperand();
-      if (PtrV == UseV)
-        ShouldBeNoUndef = true;
-    }
-    if (const StoreInst *SI = dyn_cast<StoreInst>(I)) {
-      const Value *PtrV = SI->getPointerOperand();
-      if (PtrV == UseV)
-        ShouldBeNoUndef = true;
-    }
-    // Track use for instructions which produce undef from undef
+    const DominatorTree *DT = nullptr;
+    if (Function *F = getAnchorScope())
+      DT = A.getInfoCache().getAnalysisResultForFunction<DominatorTreeAnalysis>(
+          *F);
+    State.setKnown(isGuaranteedNotToBeUndefOrPoison(UseV, I, DT));
+    bool TrackUse = false;
+    // Track use for instructions which must produce undef or poison bits when
+    // at least one operand contains such bits.
     if (isa<CastInst>(*I) || isa<GetElementPtrInst>(*I))
       TrackUse = true;
-    if (ShouldBeNoUndef)
-      State.setKnown(true);
     return TrackUse;
   }
 
