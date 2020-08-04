@@ -580,7 +580,9 @@ define i32 @foo() {
   ret i32 %X
 }
 
-; Tests for nonnull attribute violation.
+; Tests for nonnull noundef attribute violation.
+;
+; Tests for argument position
 
 define void @arg_nonnull_1(i32* nonnull %a) {
 ; IS__TUNIT____: Function Attrs: argmemonly nofree nosync nounwind willreturn writeonly
@@ -873,4 +875,64 @@ f:
   br label %ret
 ret:
   ret void
+}
+
+; Tests for returned position
+
+define nonnull i32* @returned_nonnull(i1 %c) {
+; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@returned_nonnull
+; IS__TUNIT____-SAME: (i1 [[C:%.*]])
+; IS__TUNIT____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__TUNIT____:       t:
+; IS__TUNIT____-NEXT:    [[PTR:%.*]] = alloca i32, align 4
+; IS__TUNIT____-NEXT:    ret i32* [[PTR]]
+; IS__TUNIT____:       f:
+; IS__TUNIT____-NEXT:    ret i32* null
+;
+; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@returned_nonnull
+; IS__CGSCC____-SAME: (i1 [[C:%.*]])
+; IS__CGSCC____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__CGSCC____:       t:
+; IS__CGSCC____-NEXT:    [[PTR:%.*]] = alloca i32, align 4
+; IS__CGSCC____-NEXT:    ret i32* [[PTR]]
+; IS__CGSCC____:       f:
+; IS__CGSCC____-NEXT:    ret i32* null
+;
+  br i1 %c, label %t, label %f
+t:
+  %ptr = alloca i32
+  ret i32* %ptr
+f:
+  ret i32* null
+}
+
+define nonnull noundef i32* @returned_nonnull_noundef(i1 %c) {
+; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@returned_nonnull_noundef
+; IS__TUNIT____-SAME: (i1 [[C:%.*]])
+; IS__TUNIT____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__TUNIT____:       t:
+; IS__TUNIT____-NEXT:    [[PTR:%.*]] = alloca i32, align 4
+; IS__TUNIT____-NEXT:    ret i32* [[PTR]]
+; IS__TUNIT____:       f:
+; IS__TUNIT____-NEXT:    unreachable
+;
+; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@returned_nonnull_noundef
+; IS__CGSCC____-SAME: (i1 [[C:%.*]])
+; IS__CGSCC____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
+; IS__CGSCC____:       t:
+; IS__CGSCC____-NEXT:    [[PTR:%.*]] = alloca i32, align 4
+; IS__CGSCC____-NEXT:    ret i32* [[PTR]]
+; IS__CGSCC____:       f:
+; IS__CGSCC____-NEXT:    unreachable
+;
+  br i1 %c, label %t, label %f
+t:
+  %ptr = alloca i32
+  ret i32* %ptr
+f:
+  ret i32* null
 }

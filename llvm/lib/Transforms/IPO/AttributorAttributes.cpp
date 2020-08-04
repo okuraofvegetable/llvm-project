@@ -2038,6 +2038,35 @@ struct AAUndefinedBehaviorImpl : public AAUndefinedBehavior {
       return true;
     };
 
+    auto InspectReturnInstForUB =
+        [&](Value &V, const SmallSetVector<ReturnInst *, 4> RetInsts) {
+          auto &ValueSimplifyAA =
+              A.getAAFor<AAValueSimplify>(*this, IRPosition::value(V));
+          Optional<Value *> SimplifiedVal =
+              ValueSimplifyAA.getAssumedSimplifiedValue(A);
+          if (!ValueSimplifyAA.isKnown())
+            return true;
+          bool FoundUB = false;
+          if (!SimplifiedVal.hasValue() ||
+              isa<UndefValue>(*SimplifiedVal.getValue())) {
+            FoundUB = true;
+          } else {
+            auto &NonNullAA = A.getAAFor<AANonNull>(
+                *this, IRPosition::returned(*getAnchorScope()));
+            if (NonNullAA.isKnownNonNull() &&
+                isa<ConstantPointerNull>(*SimplifiedVal.getValue()))
+              FoundUB = true;
+          }
+          if (FoundUB) {
+            for (ReturnInst *RI : RetInsts) {
+              Instruction *I = static_cast<Instruction *>(RI);
+              if (!AssumedNoUBInsts.count(I) && !KnownUBInsts.count(I))
+                KnownUBInsts.insert(I);
+            }
+          }
+          return true;
+        };
+
     A.checkForAllInstructions(InspectMemAccessInstForUB, *this,
                               {Instruction::Load, Instruction::Store,
                                Instruction::AtomicCmpXchg,
@@ -2046,6 +2075,10 @@ struct AAUndefinedBehaviorImpl : public AAUndefinedBehavior {
     A.checkForAllInstructions(InspectBrInstForUB, *this, {Instruction::Br},
                               /* CheckBBLivenessOnly */ true);
     A.checkForAllCallLikeInstructions(InspectCallSiteForUB, *this);
+
+    if (IRPosition::returned(*getAnchorScope()).hasAttr({Attribute::NoUndef}))
+      A.checkForAllReturnedValuesAndReturnInsts(InspectReturnInstForUB, *this);
+
     if (NoUBPrevSize != AssumedNoUBInsts.size() ||
         UBPrevSize != KnownUBInsts.size())
       return ChangeStatus::CHANGED;
