@@ -2040,12 +2040,25 @@ struct AAUndefinedBehaviorImpl : public AAUndefinedBehavior {
 
     auto InspectReturnInstForUB =
         [&](Value &V, const SmallSetVector<ReturnInst *, 4> RetInsts) {
+          // Check if a return instruction always cause UB or not
+          // Note: It is guaranteed that the returned position of the anchor
+          //       scope has noundef attribute when this is called.
+
           auto &ValueSimplifyAA =
               A.getAAFor<AAValueSimplify>(*this, IRPosition::value(V));
           Optional<Value *> SimplifiedVal =
               ValueSimplifyAA.getAssumedSimplifiedValue(A);
           if (!ValueSimplifyAA.isKnown())
             return true;
+
+          // When the returned position has noundef attriubte, UB occur in the
+          // following cases.
+          //   (1) Returned value is known to be dead (because it can be reduced
+          //       to undef).
+          //   (2) The value is known to be undef.
+          //   (3) The value is known to be a null pointer and the returned
+          //       position has nonnull attribute (because the returned value is
+          //       poison).
           bool FoundUB = false;
           if (!SimplifiedVal.hasValue() ||
               isa<UndefValue>(*SimplifiedVal.getValue())) {
@@ -2057,6 +2070,7 @@ struct AAUndefinedBehaviorImpl : public AAUndefinedBehavior {
                 isa<ConstantPointerNull>(*SimplifiedVal.getValue()))
               FoundUB = true;
           }
+
           if (FoundUB) {
             for (ReturnInst *RI : RetInsts) {
               Instruction *I = static_cast<Instruction *>(RI);
@@ -2076,6 +2090,8 @@ struct AAUndefinedBehaviorImpl : public AAUndefinedBehavior {
                               /* CheckBBLivenessOnly */ true);
     A.checkForAllCallLikeInstructions(InspectCallSiteForUB, *this);
 
+    // If the returned position of the anchor scope has noundef attriubte, check
+    // all returned instructions.
     if (IRPosition::returned(*getAnchorScope()).hasAttr({Attribute::NoUndef}))
       A.checkForAllReturnedValuesAndReturnInsts(InspectReturnInstForUB, *this);
 
