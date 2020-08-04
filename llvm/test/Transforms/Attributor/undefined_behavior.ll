@@ -879,60 +879,128 @@ ret:
 
 ; Tests for returned position
 
-define nonnull i32* @returned_nonnull(i1 %c) {
+define nonnull i32* @returned_nonnnull(i32 %c) {
 ; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
-; IS__TUNIT____-LABEL: define {{[^@]+}}@returned_nonnull
-; IS__TUNIT____-SAME: (i1 [[C:%.*]])
-; IS__TUNIT____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
-; IS__TUNIT____:       t:
+; IS__TUNIT____-LABEL: define {{[^@]+}}@returned_nonnnull
+; IS__TUNIT____-SAME: (i32 [[C:%.*]])
+; IS__TUNIT____-NEXT:    switch i32 [[C]], label [[ONDEFAULT:%.*]] [
+; IS__TUNIT____-NEXT:    i32 0, label [[ONZERO:%.*]]
+; IS__TUNIT____-NEXT:    i32 1, label [[ONONE:%.*]]
+; IS__TUNIT____-NEXT:    ]
+; IS__TUNIT____:       onzero:
 ; IS__TUNIT____-NEXT:    [[PTR:%.*]] = alloca i32, align 4
 ; IS__TUNIT____-NEXT:    ret i32* [[PTR]]
-; IS__TUNIT____:       f:
+; IS__TUNIT____:       onone:
 ; IS__TUNIT____-NEXT:    ret i32* null
+; IS__TUNIT____:       ondefault:
+; IS__TUNIT____-NEXT:    ret i32* undef
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@returned_nonnull
-; IS__CGSCC____-SAME: (i1 [[C:%.*]])
-; IS__CGSCC____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
-; IS__CGSCC____:       t:
+; IS__CGSCC____-LABEL: define {{[^@]+}}@returned_nonnnull
+; IS__CGSCC____-SAME: (i32 [[C:%.*]])
+; IS__CGSCC____-NEXT:    switch i32 [[C]], label [[ONDEFAULT:%.*]] [
+; IS__CGSCC____-NEXT:    i32 0, label [[ONZERO:%.*]]
+; IS__CGSCC____-NEXT:    i32 1, label [[ONONE:%.*]]
+; IS__CGSCC____-NEXT:    ]
+; IS__CGSCC____:       onzero:
 ; IS__CGSCC____-NEXT:    [[PTR:%.*]] = alloca i32, align 4
 ; IS__CGSCC____-NEXT:    ret i32* [[PTR]]
-; IS__CGSCC____:       f:
+; IS__CGSCC____:       onone:
 ; IS__CGSCC____-NEXT:    ret i32* null
+; IS__CGSCC____:       ondefault:
+; IS__CGSCC____-NEXT:    ret i32* undef
 ;
-  br i1 %c, label %t, label %f
-t:
+  switch i32 %c, label %ondefault [ i32 0, label %onzero
+  i32 1, label %onone ]
+onzero:
   %ptr = alloca i32
   ret i32* %ptr
-f:
+onone:
   ret i32* null
+ondefault:
+  ret i32* undef
 }
 
-define nonnull noundef i32* @returned_nonnull_noundef(i1 %c) {
+define noundef i32* @returned_noundef(i32 %c) {
 ; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
-; IS__TUNIT____-LABEL: define {{[^@]+}}@returned_nonnull_noundef
-; IS__TUNIT____-SAME: (i1 [[C:%.*]])
-; IS__TUNIT____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
-; IS__TUNIT____:       t:
+; IS__TUNIT____-LABEL: define {{[^@]+}}@returned_noundef
+; IS__TUNIT____-SAME: (i32 [[C:%.*]])
+; IS__TUNIT____-NEXT:    switch i32 [[C]], label [[ONDEFAULT:%.*]] [
+; IS__TUNIT____-NEXT:    i32 0, label [[ONZERO:%.*]]
+; IS__TUNIT____-NEXT:    i32 1, label [[ONONE:%.*]]
+; IS__TUNIT____-NEXT:    ]
+; IS__TUNIT____:       onzero:
 ; IS__TUNIT____-NEXT:    [[PTR:%.*]] = alloca i32, align 4
 ; IS__TUNIT____-NEXT:    ret i32* [[PTR]]
-; IS__TUNIT____:       f:
+; IS__TUNIT____:       onone:
+; IS__TUNIT____-NEXT:    ret i32* null
+; IS__TUNIT____:       ondefault:
 ; IS__TUNIT____-NEXT:    unreachable
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
-; IS__CGSCC____-LABEL: define {{[^@]+}}@returned_nonnull_noundef
-; IS__CGSCC____-SAME: (i1 [[C:%.*]])
-; IS__CGSCC____-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
-; IS__CGSCC____:       t:
+; IS__CGSCC____-LABEL: define {{[^@]+}}@returned_noundef
+; IS__CGSCC____-SAME: (i32 [[C:%.*]])
+; IS__CGSCC____-NEXT:    switch i32 [[C]], label [[ONDEFAULT:%.*]] [
+; IS__CGSCC____-NEXT:    i32 0, label [[ONZERO:%.*]]
+; IS__CGSCC____-NEXT:    i32 1, label [[ONONE:%.*]]
+; IS__CGSCC____-NEXT:    ]
+; IS__CGSCC____:       onzero:
 ; IS__CGSCC____-NEXT:    [[PTR:%.*]] = alloca i32, align 4
 ; IS__CGSCC____-NEXT:    ret i32* [[PTR]]
-; IS__CGSCC____:       f:
+; IS__CGSCC____:       onone:
+; IS__CGSCC____-NEXT:    ret i32* null
+; IS__CGSCC____:       ondefault:
 ; IS__CGSCC____-NEXT:    unreachable
 ;
-  br i1 %c, label %t, label %f
-t:
+  switch i32 %c, label %ondefault [ i32 0, label %onzero
+  i32 1, label %onone ]
+onzero:
   %ptr = alloca i32
   ret i32* %ptr
-f:
+onone:
   ret i32* null
+ondefault:
+  ret i32* undef
+}
+
+define nonnull noundef i32* @returned_nonnnull_noundef(i32 %c) {
+; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@returned_nonnnull_noundef
+; IS__TUNIT____-SAME: (i32 [[C:%.*]])
+; IS__TUNIT____-NEXT:    switch i32 [[C]], label [[ONDEFAULT:%.*]] [
+; IS__TUNIT____-NEXT:    i32 0, label [[ONZERO:%.*]]
+; IS__TUNIT____-NEXT:    i32 1, label [[ONONE:%.*]]
+; IS__TUNIT____-NEXT:    ]
+; IS__TUNIT____:       onzero:
+; IS__TUNIT____-NEXT:    [[PTR:%.*]] = alloca i32, align 4
+; IS__TUNIT____-NEXT:    ret i32* [[PTR]]
+; IS__TUNIT____:       onone:
+; IS__TUNIT____-NEXT:    unreachable
+; IS__TUNIT____:       ondefault:
+; IS__TUNIT____-NEXT:    unreachable
+;
+; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
+; IS__CGSCC____-LABEL: define {{[^@]+}}@returned_nonnnull_noundef
+; IS__CGSCC____-SAME: (i32 [[C:%.*]])
+; IS__CGSCC____-NEXT:    switch i32 [[C]], label [[ONDEFAULT:%.*]] [
+; IS__CGSCC____-NEXT:    i32 0, label [[ONZERO:%.*]]
+; IS__CGSCC____-NEXT:    i32 1, label [[ONONE:%.*]]
+; IS__CGSCC____-NEXT:    ]
+; IS__CGSCC____:       onzero:
+; IS__CGSCC____-NEXT:    [[PTR:%.*]] = alloca i32, align 4
+; IS__CGSCC____-NEXT:    ret i32* [[PTR]]
+; IS__CGSCC____:       onone:
+; IS__CGSCC____-NEXT:    unreachable
+; IS__CGSCC____:       ondefault:
+; IS__CGSCC____-NEXT:    unreachable
+;
+  switch i32 %c, label %ondefault [ i32 0, label %onzero
+  i32 1, label %onone ]
+onzero:
+  %ptr = alloca i32
+  ret i32* %ptr
+onone:
+  ret i32* null
+ondefault:
+  ret i32* undef
 }
