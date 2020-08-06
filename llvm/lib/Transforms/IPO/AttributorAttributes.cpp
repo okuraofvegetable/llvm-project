@@ -7639,9 +7639,6 @@ struct AANoUndefImpl : AANoUndef {
       indicateOptimisticFixpoint();
     else
       AANoUndef::initialize(A);
-    if (!getState().isAtFixpoint())
-      if (Instruction *CtxI = getCtxI())
-        followUsesInMBEC(*this, A, getState(), *CtxI);
   }
 
   /// See followUsesInMBEC
@@ -7670,6 +7667,14 @@ struct AANoUndefImpl : AANoUndef {
 struct AANoUndefFloating : public AANoUndefImpl {
   AANoUndefFloating(const IRPosition &IRP, Attributor &A)
       : AANoUndefImpl(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  void initialize(Attributor &A) override {
+    AANoUndefImpl::initialize(A);
+    if (!getState().isAtFixpoint())
+      if (Instruction *CtxI = getCtxI())
+        followUsesInMBEC(*this, A, getState(), *CtxI);
+  }
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
