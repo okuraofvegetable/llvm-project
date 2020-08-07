@@ -2044,40 +2044,28 @@ struct AAUndefinedBehaviorImpl : public AAUndefinedBehavior {
           // Note: It is guaranteed that the returned position of the anchor
           //       scope has noundef attribute when this is called.
 
-          auto &ValueSimplifyAA =
-              A.getAAFor<AAValueSimplify>(*this, IRPosition::value(V));
-          Optional<Value *> SimplifiedVal =
-              ValueSimplifyAA.getAssumedSimplifiedValue(A);
-          if (!ValueSimplifyAA.isKnown())
-            return true;
-
           // When the returned position has noundef attriubte, UB occur in the
           // following cases.
-          //   (1) Returned value is known to be dead (because it can be reduced
-          //       to undef).
-          //   (2) The value is known to be undef.
-          //   (3) The value is known to be a null pointer and the returned
+          //   (1) Returned value is known to be undef.
+          //   (2) The value is known to be a null pointer and the returned
           //       position has nonnull attribute (because the returned value is
           //       poison).
+          // Note: This callback is not called for a dead returned value because
+          //       such values are ignored in
+          //       checkForAllReturnedValuesAndReturnedInsts.
           bool FoundUB = false;
-          if (!SimplifiedVal.hasValue() ||
-              isa<UndefValue>(*SimplifiedVal.getValue())) {
+          if (isa<UndefValue>(V)) {
             FoundUB = true;
           } else {
             auto &NonNullAA = A.getAAFor<AANonNull>(
                 *this, IRPosition::returned(*getAnchorScope()));
-            if (NonNullAA.isKnownNonNull() &&
-                isa<ConstantPointerNull>(*SimplifiedVal.getValue()))
+            if (NonNullAA.isKnownNonNull() && isa<ConstantPointerNull>(V))
               FoundUB = true;
           }
 
-          if (FoundUB) {
-            for (ReturnInst *RI : RetInsts) {
-              Instruction *I = static_cast<Instruction *>(RI);
-              if (!AssumedNoUBInsts.count(I) && !KnownUBInsts.count(I))
-                KnownUBInsts.insert(I);
-            }
-          }
+          if (FoundUB)
+            for (ReturnInst *RI : RetInsts)
+              KnownUBInsts.insert(RI);
           return true;
         };
 
@@ -2092,6 +2080,7 @@ struct AAUndefinedBehaviorImpl : public AAUndefinedBehavior {
 
     // If the returned position of the anchor scope has noundef attriubte, check
     // all returned instructions.
+    // TODO: If AANoUndef is implemented, ask it here.
     if (IRPosition::returned(*getAnchorScope()).hasAttr({Attribute::NoUndef}))
       A.checkForAllReturnedValuesAndReturnInsts(InspectReturnInstForUB, *this);
 
