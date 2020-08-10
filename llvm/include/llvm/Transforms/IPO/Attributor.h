@@ -789,6 +789,18 @@ struct InformationCache {
   /// Return the map conaining all the knowledge we have from `llvm.assume`s.
   const RetainedKnowledgeMap &getKnowledgeMap() const { return KnowledgeMap; }
 
+  /// Return cached reachability. Return true when it was proven that To is
+  /// reachable from From in AAReachability.
+  bool getCachedReachability(const Instruction &From, const Instruction &To) {
+    auto KeyPair = std::make_pair(&From, &To);
+    return KnownReachableInstPairSet.count(KeyPair);
+  }
+
+  /// Cache the result of analysis at AAReachability
+  void cacheReachability(const Instruction &From, const Instruction &To) {
+    KnownReachableInstPairSet.insert(std::make_pair(&From, &To));
+  }
+
   /// Return if \p To is potentially reachable form \p From or not
   /// If the same query was answered, return cached result
   bool getPotentiallyReachable(const Instruction &From, const Instruction &To) {
@@ -862,6 +874,12 @@ private:
 
   /// Set of inlineable functions
   SmallPtrSet<const Function *, 8> InlineableFunctions;
+
+  /// A set for caching results of queries for AAReachability
+  /// Once it turned out second instruction is reachable from first instruction,
+  /// the pair of instruction is added to this.
+  DenseSet<std::pair<const Instruction *, const Instruction *>>
+      KnownReachableInstPairSet;
 
   /// A map for caching results of queries for isPotentiallyReachable
   DenseMap<std::pair<const Instruction *, const Instruction *>, bool>
@@ -2479,6 +2497,12 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
   /// determines (and caches) reachability.
   bool isAssumedReachable(Attributor &A, const Instruction &From,
                           const Instruction &To) const {
+    // If once it turned out To is reachable from From, we no longer need to
+    // calculate reachability. Return use cached results.
+    if (A.getInfoCache().getCachedReachability(From, To))
+      return true;
+    // If isPotentiallyReachable can prove that To is unreachable from From, use
+    // the result.
     if (!A.getInfoCache().getPotentiallyReachable(From, To))
       return false;
     return getAssumedReachable(From, To);
