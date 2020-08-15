@@ -110,13 +110,6 @@ define i32 @potential_test2(i1 %c) {
 ; int potential_test3() { return zero_or_one(iszero(0))+zero_or_one(iszero(1)); }
 
 define internal i32 @iszero3(i32 %c) {
-; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
-; IS__TUNIT____-LABEL: define {{[^@]+}}@iszero3
-; IS__TUNIT____-SAME: (i32 [[C:%.*]])
-; IS__TUNIT____-NEXT:    [[CMP:%.*]] = icmp eq i32 [[C]], 0
-; IS__TUNIT____-NEXT:    [[RET:%.*]] = zext i1 [[CMP]] to i32
-; IS__TUNIT____-NEXT:    ret i32 [[RET]]
-;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@iszero3
 ; IS__CGSCC____-SAME: (i32 [[C:%.*]])
@@ -130,13 +123,6 @@ define internal i32 @iszero3(i32 %c) {
 }
 
 define internal i32 @less_than_two(i32 %c) {
-; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
-; IS__TUNIT____-LABEL: define {{[^@]+}}@less_than_two
-; IS__TUNIT____-SAME: (i32 [[C:%.*]])
-; IS__TUNIT____-NEXT:    [[CMP:%.*]] = icmp slt i32 [[C]], 2
-; IS__TUNIT____-NEXT:    [[RET:%.*]] = zext i1 [[CMP]] to i32
-; IS__TUNIT____-NEXT:    ret i32 [[RET]]
-;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@less_than_two
 ; IS__CGSCC____-SAME: (i32 [[C:%.*]])
@@ -150,23 +136,9 @@ define internal i32 @less_than_two(i32 %c) {
 }
 
 define i32 @potential_test3() {
-; IS__TUNIT_OPM: Function Attrs: nofree nosync nounwind readnone willreturn
-; IS__TUNIT_OPM-LABEL: define {{[^@]+}}@potential_test3()
-; IS__TUNIT_OPM-NEXT:    [[CMP1:%.*]] = call i32 @iszero3(i32 0)
-; IS__TUNIT_OPM-NEXT:    [[TRUE1:%.*]] = call i32 @less_than_two(i32 [[CMP1]])
-; IS__TUNIT_OPM-NEXT:    [[CMP2:%.*]] = call i32 @iszero3(i32 1)
-; IS__TUNIT_OPM-NEXT:    [[TRUE2:%.*]] = call i32 @less_than_two(i32 [[CMP2]])
-; IS__TUNIT_OPM-NEXT:    [[RET:%.*]] = add i32 [[TRUE1]], [[TRUE2]]
-; IS__TUNIT_OPM-NEXT:    ret i32 [[RET]]
-;
-; IS__TUNIT_NPM: Function Attrs: nofree nosync nounwind readnone willreturn
-; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@potential_test3()
-; IS__TUNIT_NPM-NEXT:    [[CMP1:%.*]] = call i32 @iszero3(i32 0) [[ATTR0:#.*]], [[RNG0:!range !.*]]
-; IS__TUNIT_NPM-NEXT:    [[TRUE1:%.*]] = call i32 @less_than_two(i32 [[CMP1]]) [[ATTR0]], [[RNG0]]
-; IS__TUNIT_NPM-NEXT:    [[CMP2:%.*]] = call i32 @iszero3(i32 1) [[ATTR0]], [[RNG0]]
-; IS__TUNIT_NPM-NEXT:    [[TRUE2:%.*]] = call i32 @less_than_two(i32 [[CMP2]]) [[ATTR0]], [[RNG0]]
-; IS__TUNIT_NPM-NEXT:    [[RET:%.*]] = add i32 [[TRUE1]], [[TRUE2]]
-; IS__TUNIT_NPM-NEXT:    ret i32 [[RET]]
+; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
+; IS__TUNIT____-LABEL: define {{[^@]+}}@potential_test3()
+; IS__TUNIT____-NEXT:    ret i32 2
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@potential_test3()

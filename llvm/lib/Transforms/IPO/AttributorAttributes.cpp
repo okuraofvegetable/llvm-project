@@ -6949,8 +6949,24 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
       return;
     }
 
-    if (isa<BinaryOperator>(&V) || isa<CmpInst>(&V) || isa<CastInst>(&V))
+    if (isa<CallBase>(&V))
       return;
+
+    if (isa<BinaryOperator>(&V) || isa<CmpInst>(&V))
+      return;
+
+    // Propagate known state for cast instructions.
+    if (CastInst *CI = dyn_cast<CastInst>(&V)) {
+      Value &OpV = *CI->getOperand(0);
+      if (!OpV.getType()->isIntegerTy())
+        return;
+      auto &OpAA =
+          A.getAAFor<AAValueConstantRange>(*this, IRPosition::value(OpV));
+      intersectKnown(
+          OpAA.getKnown().castOp(CI->getOpcode(), getState().getBitWidth()));
+      return;
+    }
+
     // If it is a load instruction with range metadata, use it.
     if (LoadInst *LI = dyn_cast<LoadInst>(&V))
       if (auto *RangeMD = LI->getMetadata(LLVMContext::MD_range)) {
