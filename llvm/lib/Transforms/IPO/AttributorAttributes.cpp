@@ -7330,7 +7330,9 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
 
   static APInt calculateBinaryOperator(const BinaryOperator *BinOp,
                                        const APInt &LHS, const APInt &RHS,
-                                       bool &SkipOperation, bool &Unsupported) {
+                                       bool &SkipOperation, bool &Unsupported,
+                                       bool &CanBeReducedToUndef,
+                                       bool LHSIsUndef, bool RHSIsUndef) {
     Instruction::BinaryOps BinOpcode = BinOp->getOpcode();
     // Unsupported is set to true when the binary operator is not supported.
     // SkipOperation is set to true when UB occur with the given operand pair
@@ -7342,48 +7344,147 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
       Unsupported = true;
       return LHS;
     case Instruction::Add:
+      // add undef, %X => undef
+      // add %X, undef => undef
+      if (LHSIsUndef || RHSIsUndef) {
+        CanBeReducedToUndef = true;
+        return LHS;
+      }
       return LHS + RHS;
     case Instruction::Sub:
+      // sub undef, %X => undef
+      // sub %X, undef => undef
+      if (LHSIsUndef || RHSIsUndef) {
+        CanBeReducedToUndef = true;
+        return LHS;
+      }
       return LHS - RHS;
     case Instruction::Mul:
+      // mul undef, undef => undef
+      if (LHSIsUndef && RHSIsUndef) {
+        CanBeReducedToUndef = true;
+        return LHS;
+      }
+      // mul undef, %X => 0
+      // mul %X, undef => 0
+      if (LHSIsUndef || RHSIsUndef)
+        return APInt(/* numBits */ LHS.getBitWidth(), /* val */ 0);
       return LHS * RHS;
     case Instruction::UDiv:
-      if (RHS.isNullValue()) {
+      if (!RHSIsUndef && RHS.isNullValue()) {
         SkipOperation = true;
         return LHS;
       }
+      // udiv undef, undef => undef
+      if (LHSIsUndef && RHSIsUndef) {
+        CanBeReducedToUndef = true;
+        return LHS;
+      }
+      // udiv undef, %X => 0
+      if (LHSIsUndef)
+        return APInt(/* numBits */ LHS.getBitWidth(), /* val */ 0);
+      // udiv %X, undef => udiv %X, (unsigned max)
+      if (RHSIsUndef)
+        return LHS.udiv(APInt::getMaxValue(RHS.getBitWidth()));
       return LHS.udiv(RHS);
     case Instruction::SDiv:
-      if (RHS.isNullValue()) {
+      if (!RHSIsUndef && RHS.isNullValue()) {
         SkipOperation = true;
         return LHS;
       }
+      // sdiv undef, undef => undef
+      if (LHSIsUndef && RHSIsUndef) {
+        CanBeReducedToUndef = true;
+        return LHS;
+      }
+      // sdiv undef, %X => 0
+      if (LHSIsUndef)
+        return APInt(/* numBits */ LHS.getBitWidth(), /* val */ 0);
+      // sdiv %X, undef => sdiv %X, (signed max)
+      if (RHSIsUndef)
+        return LHS.sdiv(APInt::getSignedMaxValue(RHS.getBitWidth()));
       return LHS.sdiv(RHS);
     case Instruction::URem:
-      if (RHS.isNullValue()) {
+      if (!RHSIsUndef && RHS.isNullValue()) {
         SkipOperation = true;
         return LHS;
       }
+      // urem undef, %X => 0
+      // urem %X, undef => 0
+      if (LHSIsUndef || RHSIsUndef)
+        return APInt(/* numBits */ LHS.getBitWidth(), /* val */ 0);
       return LHS.urem(RHS);
     case Instruction::SRem:
-      if (RHS.isNullValue()) {
+      if (!RHSIsUndef && RHS.isNullValue()) {
         SkipOperation = true;
         return LHS;
       }
+      // srem undef, %X => 0
+      // srem %X, undef => 0
+      if (LHSIsUndef || RHSIsUndef)
+        return APInt(/* numBits */ LHS.getBitWidth(), /* val */ 0);
       return LHS.srem(RHS);
     case Instruction::Shl:
+      // shl undef, %X => 0
+      // shl %X, undef => 0
+      if (LHSIsUndef || RHSIsUndef)
+        return APInt(/* numBits */ LHS.getBitWidth(), /* val */ 0);
       return LHS.shl(RHS);
     case Instruction::LShr:
+      // lshr undef, %X => 0
+      // lshr %X, undef => 0
+      if (LHSIsUndef || RHSIsUndef)
+        return APInt(/* numBits */ LHS.getBitWidth(), /* val */ 0);
       return LHS.lshr(RHS);
     case Instruction::AShr:
+      // ashr undef, %X => 0
+      if (LHSIsUndef)
+        return APInt(/* numBits */ LHS.getBitWidth(), /* val */ 0);
+      // ashr %X, undef => ashr %X, (sufficiently big value)
+      if (RHSIsUndef)
+        return LHS.ashr(APInt(/* numBits */ RHS.getBitWidth(),
+                              /* val */ RHS.getBitWidth()));
       return LHS.ashr(RHS);
     case Instruction::And:
+      // and undef, %X => 0
+      // and %X, undef => 0
+      if (LHSIsUndef || RHSIsUndef)
+        return APInt(/* numBits */ LHS.getBitWidth(), /* val */ 0);
       return LHS & RHS;
     case Instruction::Or:
+      // or undef, %X => -1
+      // or %X, undef => -1
+      if (LHSIsUndef || RHSIsUndef)
+        return APInt::getAllOnesValue(/* numBits */ LHS.getBitWidth());
       return LHS | RHS;
     case Instruction::Xor:
+      // xor undef, %X => undef
+      // xor %X, undef => undef
+      if (LHSIsUndef || RHSIsUndef) {
+        CanBeReducedToUndef = true;
+        return LHS;
+      }
       return LHS ^ RHS;
     }
+  }
+
+  bool calculateBinaryOperatorAndTakeUnion(BinaryOperator *BinOp,
+                                           const APInt &LHS, const APInt &RHS,
+                                           bool LHSIsUndef = false,
+                                           bool RHSIsUndef = false) {
+    bool SkipOperation = false;
+    bool Unsupported = false;
+    bool CanBeReducedToUndef = false;
+    APInt Result =
+        calculateBinaryOperator(BinOp, LHS, RHS, SkipOperation, Unsupported,
+                                CanBeReducedToUndef, LHSIsUndef, RHSIsUndef);
+    if (Unsupported)
+      return false;
+    if (CanBeReducedToUndef)
+      unionAssumedWithUndef();
+    else if (!SkipOperation)
+      unionAssumed(Result);
+    return true;
   }
 
   ChangeStatus updateWithICmpInst(Attributor &A, ICmpInst *ICI) {
@@ -7438,7 +7539,8 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     auto &RHSAA = A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*RHS));
     if (!RHSAA.isValidState())
       return indicatePessimisticFixpoint();
-
+    if (LHSAA.undefIsContained() || RHSAA.undefIsContained())
+      unionAssumedWithUndef();
     unionAssumed(LHSAA);
     unionAssumed(RHSAA);
     return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
@@ -7455,12 +7557,13 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     auto &SrcAA = A.getAAFor<AAPotentialValues>(*this, IRPosition::value(*Src));
     if (!SrcAA.isValidState())
       return indicatePessimisticFixpoint();
+    if (SrcAA.undefIsContained())
+      unionAssumedWithUndef();
     const DenseSet<APInt> &SrcAAPVS = SrcAA.getAssumedSet();
     for (const APInt &S : SrcAAPVS) {
       APInt T = calculateCastInst(CI, S, ResultBitWidth);
       unionAssumed(T);
     }
-    // TODO: Handle undef correctly.
     return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
                                          : ChangeStatus::CHANGED;
   }
@@ -7483,18 +7586,28 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
     const DenseSet<APInt> &LHSAAPVS = LHSAA.getAssumedSet();
     const DenseSet<APInt> &RHSAAPVS = RHSAA.getAssumedSet();
 
-    // TODO: Handle undef correctly
-    for (const APInt &L : LHSAAPVS) {
-      for (const APInt &R : RHSAAPVS) {
-        bool SkipOperation = false;
-        bool Unsupported = false;
-        APInt Result =
-            calculateBinaryOperator(BinOp, L, R, SkipOperation, Unsupported);
-        if (Unsupported)
+    if (LHSAA.undefIsContained() && RHSAA.undefIsContained()) {
+      APInt Dummy;
+      if (!calculateBinaryOperatorAndTakeUnion(BinOp, Dummy, Dummy,
+                                               /* LHSIsUndef */ true,
+                                               /* RHSIsUndef */ true))
+        return indicatePessimisticFixpoint();
+    } else if (LHSAA.undefIsContained()) {
+      for (const APInt &R : RHSAAPVS)
+        if (!calculateBinaryOperatorAndTakeUnion(BinOp, R, R,
+                                                 /* LHSIsUndef */ true))
           return indicatePessimisticFixpoint();
-        // If SkipOperation is true, we can ignore this operand pair (L, R).
-        if (!SkipOperation)
-          unionAssumed(Result);
+    } else if (RHSAA.undefIsContained()) {
+      for (const APInt &L : LHSAAPVS)
+        if (!calculateBinaryOperatorAndTakeUnion(BinOp, L, L,
+                                                 /* LHSIsUndef */ false,
+                                                 /* RHSIsUndef */ true))
+          return indicatePessimisticFixpoint();
+    } else {
+      for (const APInt &L : LHSAAPVS) {
+        for (const APInt &R : RHSAAPVS)
+          if (!calculateBinaryOperatorAndTakeUnion(BinOp, L, R))
+            return indicatePessimisticFixpoint();
       }
     }
     return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
@@ -7509,6 +7622,8 @@ struct AAPotentialValuesFloating : AAPotentialValuesImpl {
           *this, IRPosition::value(*IncomingValue));
       if (!PotentialValuesAA.isValidState())
         return indicatePessimisticFixpoint();
+      if (PotentialValuesAA.undefIsContained())
+        unionAssumedWithUndef();
       unionAssumed(PotentialValuesAA.getAssumed());
     }
     return AssumedBefore == getAssumed() ? ChangeStatus::UNCHANGED
