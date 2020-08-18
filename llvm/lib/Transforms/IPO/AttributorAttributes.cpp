@@ -2101,9 +2101,14 @@ struct AAUndefinedBehaviorImpl : public AAUndefinedBehavior {
 
     // If the returned position of the anchor scope has noundef attriubte, check
     // all returned instructions.
-    // TODO: If AANoUndef is implemented, ask it here.
-    if (IRPosition::returned(*getAnchorScope()).hasAttr({Attribute::NoUndef}))
-      A.checkForAllReturnedValuesAndReturnInsts(InspectReturnInstForUB, *this);
+    if (!getAnchorScope()->getReturnType()->isVoidTy()) {
+      auto &NoUndefAA =
+          A.getAAFor<AANoUndef>(*this, IRPosition::returned(*getAnchorScope()),
+                                /* TrackDependence */ false);
+      if (NoUndefAA.isKnownNoUndef())
+        A.checkForAllReturnedValuesAndReturnInsts(InspectReturnInstForUB,
+                                                  *this);
+    }
 
     if (NoUBPrevSize != AssumedNoUBInsts.size() ||
         UBPrevSize != KnownUBInsts.size())
@@ -7709,7 +7714,10 @@ struct AANoUndefReturned final
     : AAReturnedFromReturnedValues<AANoUndef, AANoUndefImpl> {
   AANoUndefReturned(const IRPosition &IRP, Attributor &A)
       : AAReturnedFromReturnedValues<AANoUndef, AANoUndefImpl>(IRP, A) {}
-
+  void initialize(Attributor &A) override {
+    LLVM_DEBUG(dbgs() << "initReturned!!\n");
+    AAReturnedFromReturnedValues<AANoUndef, AANoUndefImpl>::initialize(A);
+  }
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_FNRET_ATTR(noundef) }
 };
@@ -7738,6 +7746,28 @@ struct AANoUndefCallSiteReturned final
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_CSRET_ATTR(noundef) }
+};
+
+struct AANoUndefFunction : AANoUndefImpl {
+  AANoUndefFunction(const IRPosition &IRP, Attributor &A)
+      : AANoUndefImpl(IRP, A) {}
+
+  /// See AbstractAttribute::initialize(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    llvm_unreachable("AANoUndef(Function|CallSite)::updateImpl will "
+                     "not be called");
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override { STATS_DECLTRACK_FN_ATTR(noundef) }
+};
+
+struct AANoUndefCallSite : AANoUndefFunction {
+  AANoUndefCallSite(const IRPosition &IRP, Attributor &A)
+      : AANoUndefFunction(IRP, A) {}
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override { STATS_DECLTRACK_CS_ATTR(noundef) }
 };
 } // namespace
 
