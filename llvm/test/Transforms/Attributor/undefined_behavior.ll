@@ -734,13 +734,13 @@ define void @arg_nonnull_violation2_1(i1 %c) {
 ; IS__TUNIT____: Function Attrs: nofree nosync nounwind readnone willreturn
 ; IS__TUNIT____-LABEL: define {{[^@]+}}@arg_nonnull_violation2_1
 ; IS__TUNIT____-SAME: (i1 [[C:%.*]])
-; IS__TUNIT____-NEXT:    call void @arg_nonnull_1(i32* nocapture nofree nonnull writeonly align 536870912 null)
+; IS__TUNIT____-NEXT:    call void @arg_nonnull_1(i32* nocapture nofree noundef nonnull writeonly align 536870912 null)
 ; IS__TUNIT____-NEXT:    ret void
 ;
 ; IS__CGSCC____: Function Attrs: nofree norecurse nosync nounwind readnone willreturn
 ; IS__CGSCC____-LABEL: define {{[^@]+}}@arg_nonnull_violation2_1
 ; IS__CGSCC____-SAME: (i1 [[C:%.*]])
-; IS__CGSCC____-NEXT:    call void @arg_nonnull_1(i32* nocapture nofree nonnull writeonly align 536870912 dereferenceable(4) null)
+; IS__CGSCC____-NEXT:    call void @arg_nonnull_1(i32* nocapture nofree noundef nonnull writeonly align 536870912 dereferenceable(4) null)
 ; IS__CGSCC____-NEXT:    ret void
 ;
   %null = getelementptr i32, i32* null, i32 0
