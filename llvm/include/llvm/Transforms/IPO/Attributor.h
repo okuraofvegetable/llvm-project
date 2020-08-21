@@ -1953,7 +1953,6 @@ struct IntegerRangeState : public AbstractState {
   void unionKnown(const ConstantRange &R) {
     // Don't loose a known range.
     Known = Known.unionWith(R);
-    Assumed = Assumed.unionWith(Known);
   }
 
   /// See IntegerRangeState::unionKnown(..).
