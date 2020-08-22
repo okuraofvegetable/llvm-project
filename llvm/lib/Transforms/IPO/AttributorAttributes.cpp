@@ -7786,8 +7786,18 @@ struct AANoUndefFloating : public AANoUndefImpl {
 
 struct AANoUndefReturned final
     : AAReturnedFromReturnedValues<AANoUndef, AANoUndefImpl> {
-  AANoUndefReturned(const IRPosition &IRP, Attributor &A)
-      : AAReturnedFromReturnedValues<AANoUndef, AANoUndefImpl>(IRP, A) {}
+  using Base = AAReturnedFromReturnedValues<AANoUndef, AANoUndefImpl>;
+  AANoUndefReturned(const IRPosition &IRP, Attributor &A) : Base(IRP, A) {}
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    auto &LivenessAA = A.getAAFor<AAIsDead>(*this, getIRPosition());
+    // When the returned position is dead, returned values will be replaced with
+    // undef values by AAIsDead. So we don't deduce noundef for this position.
+    if (LivenessAA.isKnown())
+      return indicatePessimisticFixpoint();
+    return Base::updateImpl(A);
+  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_FNRET_ATTR(noundef) }

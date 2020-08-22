@@ -20,3 +20,21 @@ define void @foo() {
   call void @bar(i32* %x)
   ret void
 }
+
+define internal i8* @returned_dead() {
+; CHECK-LABEL: define internal noalias align 536870912 i8* @returned_dead(
+; CHECK-NEXT:    call void @unknown()
+; CHECK-NEXT:    ret i8* undef
+;
+  call void @unknown()
+  ret i8* null
+}
+
+define void @caller() {
+; CHECK-LABEL: @caller(
+; CHECK-NEXT:    [[TMP1:%.*]] = call i8* @returned_dead()
+; CHECK-NEXT:    ret void
+;
+  call i8* @returned_dead()
+  ret void
+}
