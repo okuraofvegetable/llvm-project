@@ -278,7 +278,7 @@ define void @byval_not_readonly_1(i8* byval %written) readonly {
 ; CHECK: Function Attrs: readonly
 ; CHECK-LABEL: define {{[^@]+}}@byval_not_readonly_1
 ; CHECK-SAME: (i8* noalias nonnull byval dereferenceable(1) [[WRITTEN:%.*]])
-; CHECK-NEXT:    call void @escape_i8(i8* nonnull dereferenceable(1) [[WRITTEN]])
+; CHECK-NEXT:    call void @escape_i8(i8* noalias nonnull dereferenceable(1) [[WRITTEN]])
 ; CHECK-NEXT:    ret void
 ;
   call void @escape_i8(i8* %written)
@@ -306,7 +306,7 @@ define void @byval_not_readnone_1(i8* byval %written) readnone {
 ; CHECK: Function Attrs: readnone
 ; CHECK-LABEL: define {{[^@]+}}@byval_not_readnone_1
 ; CHECK-SAME: (i8* noalias nonnull byval dereferenceable(1) [[WRITTEN:%.*]])
-; CHECK-NEXT:    call void @escape_i8(i8* nonnull dereferenceable(1) [[WRITTEN]])
+; CHECK-NEXT:    call void @escape_i8(i8* noalias nonnull dereferenceable(1) [[WRITTEN]])
 ; CHECK-NEXT:    ret void
 ;
   call void @escape_i8(i8* %written)

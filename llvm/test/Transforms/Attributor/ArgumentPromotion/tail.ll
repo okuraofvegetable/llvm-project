@@ -14,7 +14,7 @@ declare i8* @foo(%pair*)
 define internal void @bar(%pair* byval %Data) {
 ; IS________OPM-LABEL: define {{[^@]+}}@bar
 ; IS________OPM-SAME: (%pair* noalias nonnull byval dereferenceable(8) [[DATA:%.*]])
-; IS________OPM-NEXT:    [[TMP1:%.*]] = tail call i8* @foo(%pair* nonnull dereferenceable(8) [[DATA]])
+; IS________OPM-NEXT:    [[TMP1:%.*]] = tail call i8* @foo(%pair* noalias nonnull dereferenceable(8) [[DATA]])
 ; IS________OPM-NEXT:    ret void
 ;
 ; IS__TUNIT_NPM-LABEL: define {{[^@]+}}@bar
@@ -24,7 +24,7 @@ define internal void @bar(%pair* byval %Data) {
 ; IS__TUNIT_NPM-NEXT:    store i32 [[TMP0]], i32* [[DATA_PRIV_CAST]], align 4
 ; IS__TUNIT_NPM-NEXT:    [[DATA_PRIV_0_1:%.*]] = getelementptr [[PAIR]], %pair* [[DATA_PRIV]], i32 0, i32 1
 ; IS__TUNIT_NPM-NEXT:    store i32 [[TMP1]], i32* [[DATA_PRIV_0_1]], align 4
-; IS__TUNIT_NPM-NEXT:    [[TMP3:%.*]] = call i8* @foo(%pair* nonnull dereferenceable(8) [[DATA_PRIV]])
+; IS__TUNIT_NPM-NEXT:    [[TMP3:%.*]] = call i8* @foo(%pair* noalias nonnull dereferenceable(8) [[DATA_PRIV]])
 ; IS__TUNIT_NPM-NEXT:    ret void
 ;
 ; IS__CGSCC_NPM-LABEL: define {{[^@]+}}@bar
@@ -34,7 +34,7 @@ define internal void @bar(%pair* byval %Data) {
 ; IS__CGSCC_NPM-NEXT:    store i32 [[TMP0]], i32* [[DATA_PRIV_CAST]], align 4
 ; IS__CGSCC_NPM-NEXT:    [[DATA_PRIV_0_1:%.*]] = getelementptr [[PAIR]], %pair* [[DATA_PRIV]], i32 0, i32 1
 ; IS__CGSCC_NPM-NEXT:    store i32 [[TMP1]], i32* [[DATA_PRIV_0_1]], align 4
-; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = call i8* @foo(%pair* noundef nonnull align 8 dereferenceable(8) [[DATA_PRIV]])
+; IS__CGSCC_NPM-NEXT:    [[TMP3:%.*]] = call i8* @foo(%pair* noalias noundef nonnull align 8 dereferenceable(8) [[DATA_PRIV]])
 ; IS__CGSCC_NPM-NEXT:    ret void
 ;
   tail call i8* @foo(%pair* %Data)
