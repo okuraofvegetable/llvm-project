@@ -2358,6 +2358,9 @@ struct AAReachabilityFunction final : public AAReachabilityImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
+    // Recompute reachability for each cached query, which is previously assumed
+    // to be unreachable BB pair. Return CHANGED when at least one query turns
+    // out to be reachable BB pair.
     ChangeStatus Changed = ChangeStatus::UNCHANGED;
     const auto &FnLiveness = A.getAAFor<AAIsDead>(*this, getIRPosition());
     DenseSet<EdgeTy> &AssumedUnreachableQueries =
