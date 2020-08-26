@@ -2343,7 +2343,7 @@ struct AAReachabilityImpl : AAReachability {
   }
 
   /// See AbstractAttribute::initialize(...).
-  void initialize(Attributor &A) override { indicatePessimisticFixpoint(); }
+  void initialize(Attributor &A) override {}
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
@@ -2354,6 +2354,53 @@ struct AAReachabilityImpl : AAReachability {
 struct AAReachabilityFunction final : public AAReachabilityImpl {
   AAReachabilityFunction(const IRPosition &IRP, Attributor &A)
       : AAReachabilityImpl(IRP, A) {}
+  using EdgeTy = std::pair<const BasicBlock *, const BasicBlock *>;
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    ChangeStatus Changed = ChangeStatus::UNCHANGED;
+    const auto &FnLiveness = A.getAAFor<AAIsDead>(*this, getIRPosition());
+    DenseSet<EdgeTy> &AssumedUnreachableQueries =
+        getAssumedUnreachableQueries(A);
+    DenseSet<EdgeTy> &KnownReachableQueries = getKnownReachableQueries(A);
+    SmallVector<EdgeTy, 8> ToBeErased;
+    for (const EdgeTy &Query : AssumedUnreachableQueries) {
+      if (computeReachability(Query.first, Query.second, FnLiveness)) {
+        Changed = ChangeStatus::CHANGED;
+        ToBeErased.push_back(Query);
+        KnownReachableQueries.insert(Query);
+      }
+    }
+    for (const EdgeTy &Query : ToBeErased)
+      AssumedUnreachableQueries.erase(Query);
+    return Changed;
+  }
+
+  // Return true when we can prove that ToBB is reachable from FromBB using only
+  // assumed liveness information.
+  bool computeReachability(const BasicBlock *FromBB, const BasicBlock *ToBB,
+                           const AAIsDead &FnLiveness) {
+    if (FromBB == ToBB)
+      return true;
+    SmallPtrSet<const BasicBlock *, 8> VisitedBBs;
+    SmallVector<const BasicBlock *, 8> Worklist;
+    Worklist.push_back(FromBB);
+    VisitedBBs.insert(FromBB);
+    while (!Worklist.empty()) {
+      const BasicBlock *BB = Worklist.pop_back_val();
+      LLVM_DEBUG(dbgs() << "[AAReachability] Explore BB : " << *BB << "\n");
+      if (BB == ToBB)
+        return true;
+      for (const_succ_iterator SuccIt = succ_begin(BB); SuccIt != succ_end(BB);
+           SuccIt++) {
+        if (FnLiveness.isEdgeDead(BB, *SuccIt))
+          continue;
+        if (VisitedBBs.insert(*SuccIt).second)
+          Worklist.push_back(*SuccIt);
+      }
+    }
+    return false;
+  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override { STATS_DECLTRACK_FN_ATTR(reachable); }

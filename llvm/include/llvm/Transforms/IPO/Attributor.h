@@ -130,6 +130,7 @@ struct Attributor;
 struct AbstractAttribute;
 struct InformationCache;
 struct AAIsDead;
+struct AAReachability;
 
 class Function;
 
@@ -804,6 +805,21 @@ struct InformationCache {
     return Result;
   }
 
+  /// Return whether it is assumed that \p To is unreachable from \p From in
+  /// AAReachability.
+  bool getAssumedUnreachable(const Instruction &From, const Instruction &To) {
+    const BasicBlock *FromBB = From.getParent();
+    const BasicBlock *ToBB = From.getParent();
+    auto QueriedBBPair = std::make_pair(FromBB, ToBB);
+    if (AssumedUnreachableQueries.count(QueriedBBPair))
+      return true;
+    if (!KnownReachableQueries.count(QueriedBBPair)) {
+      AssumedUnreachableQueries.insert(QueriedBBPair);
+      return true;
+    }
+    return false;
+  }
+
 private:
   struct FunctionInfo {
     ~FunctionInfo();
@@ -867,9 +883,22 @@ private:
   DenseMap<std::pair<const Instruction *, const Instruction *>, bool>
       PotentiallyReachableMap;
 
+  /// A set for cached queries for AAReachability. For each query in this set,
+  /// it is assumed that the second BB is unreachable from the first BB.
+  DenseSet<std::pair<const BasicBlock *, const BasicBlock *>>
+      AssumedUnreachableQueries;
+
+  /// A set for cached queries for AAReachability. For each query in this set,
+  /// it is known that the second BB is reachable from the first BB.
+  DenseSet<std::pair<const BasicBlock *, const BasicBlock *>>
+      KnownReachableQueries;
+
   /// Give the Attributor access to the members so
   /// Attributor::identifyDefaultAbstractAttributes(...) can initialize them.
   friend struct Attributor;
+
+  /// Give AAReachability access to the cached query sets.
+  friend struct AAReachability;
 };
 
 /// The fixpoint analysis framework that orchestrates the attribute deduction.
@@ -2475,7 +2504,10 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
   /// determines (and caches) reachability.
   bool isAssumedReachable(Attributor &A, const Instruction &From,
                           const Instruction &To) const {
-    return A.getInfoCache().getPotentiallyReachable(From, To);
+    InformationCache &InfoCache = A.getInfoCache();
+    if (!InfoCache.getPotentiallyReachable(From, To))
+      return false;
+    return !InfoCache.getAssumedUnreachable(From, To);
   }
 
   /// Returns true if 'From' instruction is known to reach, 'To' instruction.
@@ -2504,6 +2536,18 @@ struct AAReachability : public StateWrapper<BooleanState, AbstractAttribute> {
 
   /// Unique ID (due to the unique address)
   static const char ID;
+
+protected:
+  /// Getter for the set of cached queries in information cache
+  DenseSet<std::pair<const BasicBlock *, const BasicBlock *>> &
+  getAssumedUnreachableQueries(Attributor &A) const {
+    return A.getInfoCache().AssumedUnreachableQueries;
+  }
+
+  DenseSet<std::pair<const BasicBlock *, const BasicBlock *>> &
+  getKnownReachableQueries(Attributor &A) const {
+    return A.getInfoCache().KnownReachableQueries;
+  }
 };
 
 /// An abstract interface for all noalias attributes.
